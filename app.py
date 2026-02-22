@@ -144,6 +144,22 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
             tf_cols[i].metric(f"{label} ({pct}% weight)", f"{val:+.2f}",
                               "Bullish" if val > 0.1 else ("Bearish" if val < -0.1 else "Neutral"))
 
+        # --- Score Legend ---
+        with st.expander("Scoring Guide"):
+            st.markdown(
+                "| Score Range | Signal | Strength |\n"
+                "|---|---|---|\n"
+                "| **+0.40 to +1.00** | Strong Buy | Strong |\n"
+                "| **+0.20 to +0.39** | Buy | Moderate |\n"
+                "| **-0.19 to +0.19** | Neutral | Weak |\n"
+                "| **-0.20 to -0.39** | Sell / Take Profit | Moderate |\n"
+                "| **-0.40 to -1.00** | Strong Sell | Strong |\n"
+                "\n"
+                "Each indicator votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
+                "multiplied by its weight. The composite score is the weighted sum divided by 100. "
+                "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range."
+            )
+
         # --- Correlation Conflicts ---
         if score["conflicts"]:
             for conflict in score["conflicts"]:
