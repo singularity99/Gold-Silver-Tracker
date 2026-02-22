@@ -141,8 +141,17 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
             val = tf_scores[tf]
             pct = tf_weights[tf]
             color = "green" if val > 0.1 else ("red" if val < -0.1 else "gray")
-            tf_cols[i].metric(f"{label} ({pct}% weight)", f"{val:+.2f}",
-                              "Bullish" if val > 0.1 else ("Bearish" if val < -0.1 else "Neutral"))
+            if val >= 0.40:
+                delta_label = "Strong Buy"
+            elif val >= 0.20:
+                delta_label = "Buy"
+            elif val <= -0.40:
+                delta_label = "Strong Sell"
+            elif val <= -0.20:
+                delta_label = "Sell"
+            else:
+                delta_label = "Neutral"
+            tf_cols[i].metric(f"{label} ({pct}% weight)", f"{val:+.2f}", delta_label)
 
         # --- Score Legend ---
         with st.expander("Scoring Guide"):
