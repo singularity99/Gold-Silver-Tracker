@@ -366,6 +366,9 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
                 f"but {ind_b} is {'bullish' if vote_b > 0 else 'bearish'}"
             )
 
+    # Round to 2dp so classification matches the displayed value
+    composite = round(composite, 2)
+
     # Signal classification
     if composite >= 0.40:
         signal = SIGNAL_STRONG_BUY
