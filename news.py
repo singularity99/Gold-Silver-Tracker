@@ -114,26 +114,15 @@ def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
     return top
 
 
-def _resolve_google_news_url(title: str, source_domain: str) -> str:
-    """Resolve a Google News link to the actual article URL via Google search."""
-    if not source_domain:
-        return ""
-    # Strip publisher suffix from title (e.g. "Headline - CNBC" -> "Headline")
-    clean_title = title.rsplit(" - ", 1)[0] if " - " in title else title
-    site = source_domain.replace("https://", "").replace("http://", "").rstrip("/")
-    q = urllib.parse.quote(f"{clean_title} site:{site}")
-    search_url = f"https://www.google.com/search?q={q}&btnI=1"
+def _resolve_google_news_url(link: str) -> str:
+    """Decode a Google News RSS link to the actual publisher URL."""
+    if "news.google.com" not in link:
+        return link
     try:
-        req = Request(search_url, headers=_HEADERS)
-        with urlopen(req, timeout=8) as resp:
-            final = resp.url
-            # Google wraps in /url?q=REAL_URL
-            if "/url?q=" in final:
-                parsed = urllib.parse.urlparse(final)
-                params = urllib.parse.parse_qs(parsed.query)
-                return params.get("q", [final])[0]
-            if "news.google.com" not in final:
-                return final
+        from googlenewsdecoder import new_decoderv1
+        result = new_decoderv1(link, interval=1)
+        if result.get("status") and result.get("decoded_url"):
+            return result["decoded_url"]
     except Exception:
         pass
     return ""
@@ -142,18 +131,9 @@ def _resolve_google_news_url(title: str, source_domain: str) -> str:
 def _resolve_and_summarize(article: dict) -> tuple[str, str]:
     """Resolve real URL and fetch summary for an article."""
     link = article["link"]
-    title = article["title"]
-    source_domain = article.get("source_domain", "")
 
-    # If it's a Google News link, resolve to real URL
-    real_url = link
-    if "news.google.com" in link:
-        resolved = _resolve_google_news_url(title, source_domain)
-        if resolved:
-            real_url = resolved
-
-    # Fetch and extract summary from the real article
-    summary = _fetch_and_extract(real_url) if real_url else ""
+    real_url = _resolve_google_news_url(link) or link
+    summary = _fetch_and_extract(real_url) if "news.google.com" not in real_url else ""
     return real_url, summary
 
 
