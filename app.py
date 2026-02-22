@@ -369,10 +369,14 @@ with st.spinner("Fetching headlines and article summaries..."):
 
 if articles:
     for art in articles:
-        kws = ", ".join(art["matched_keywords"][:3])
+        published = art.get("published", "")
+        # Extract publisher from title suffix (e.g. "Headline - CNBC")
+        title = art["title"]
+        source = title.rsplit(" - ", 1)[-1] if " - " in title else art["source"]
+        clean_title = title.rsplit(" - ", 1)[0] if " - " in title else title
         summary_text = art.get("summary_text", "")
         read_link = art.get("real_link", art["link"])
-        st.markdown(f"**{art['title']}**  \n*{art['source']}* | Keywords: {kws}")
+        st.markdown(f"**{published}** | {source} | \"{clean_title}\"")
         if summary_text:
             display = summary_text[:500] + "..." if len(summary_text) > 500 else summary_text
             st.caption(display)
