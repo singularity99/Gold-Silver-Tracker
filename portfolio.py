@@ -2,18 +2,27 @@ import json
 import os
 from datetime import datetime
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "portfolio_data.json")
+def _data_file() -> str:
+    """Resolve writable path for portfolio data. Falls back to /tmp on read-only filesystems."""
+    primary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio_data.json")
+    try:
+        with open(primary, "a"):
+            pass
+        return primary
+    except OSError:
+        return os.path.join("/tmp", "portfolio_data.json")
 
 
 def _load() -> dict:
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+    path = _data_file()
+    if os.path.exists(path):
+        with open(path, "r") as f:
             return json.load(f)
     return {"total_pot": 2_000_000, "purchases": []}
 
 
 def _save(data: dict):
-    with open(DATA_FILE, "w") as f:
+    with open(_data_file(), "w") as f:
         json.dump(data, f, indent=2, default=str)
 
 

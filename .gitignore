@@ -10,5 +10,4 @@ venv/
 env/
 .env
 portfolio_data.json
-.streamlit/
 .DS_Store
