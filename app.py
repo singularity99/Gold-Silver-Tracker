@@ -18,6 +18,7 @@ from technicals import (
 from signals import score_metal, allocation_recommendation
 from portfolio import (
     get_portfolio, set_total_pot, add_purchase, delete_purchase, get_summary,
+    export_portfolio_json, import_portfolio_json, _github_config,
 )
 from news import fetch_catalyst_news
 
@@ -277,6 +278,27 @@ if summary["purchases"]:
     with st.expander("Purchase Log"):
         log_df = pd.DataFrame(summary["purchases"])
         st.dataframe(log_df, use_container_width=True)
+
+# Persistence status
+gh_cfg = _github_config()
+if gh_cfg:
+    st.caption(f"Portfolio data persisted to GitHub repo: {gh_cfg['repo']}")
+else:
+    st.caption("Portfolio data stored locally. Set GITHUB_TOKEN + GITHUB_REPO in Streamlit secrets for cloud persistence.")
+
+# Backup / Restore
+with st.expander("Backup & Restore Portfolio"):
+    st.download_button(
+        "Download Portfolio JSON",
+        data=export_portfolio_json(),
+        file_name="portfolio_data.json",
+        mime="application/json",
+    )
+    uploaded = st.file_uploader("Restore from JSON backup", type=["json"])
+    if uploaded:
+        import_portfolio_json(uploaded.read().decode("utf-8"))
+        st.success("Portfolio restored from backup.")
+        st.rerun()
 
 # Add new purchase
 with st.expander("Log New Purchase"):

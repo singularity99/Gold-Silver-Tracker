@@ -1,28 +1,102 @@
 import json
 import os
+import base64
 from datetime import datetime
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
-def _data_file() -> str:
-    """Resolve writable path for portfolio data. Falls back to /tmp on read-only filesystems."""
-    primary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio_data.json")
+REPO_FILE_PATH = "portfolio_data.json"
+DEFAULT_DATA = {"total_pot": 2_000_000, "purchases": []}
+
+
+def _github_config() -> dict | None:
+    """Load GitHub API config from Streamlit secrets or environment."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPO", "")
+    if not token or not repo:
+        try:
+            import streamlit as st
+            token = st.secrets.get("GITHUB_TOKEN", "")
+            repo = st.secrets.get("GITHUB_REPO", "")
+        except Exception:
+            pass
+    if token and repo:
+        return {"token": token, "repo": repo}
+    return None
+
+
+def _github_read(config: dict) -> tuple[dict, str | None]:
+    """Read portfolio data from GitHub repo. Returns (data, sha)."""
+    url = f"https://api.github.com/repos/{config['repo']}/contents/{REPO_FILE_PATH}"
+    req = Request(url, headers={
+        "Authorization": f"token {config['token']}",
+        "Accept": "application/vnd.github.v3+json",
+    })
+    try:
+        with urlopen(req) as resp:
+            result = json.loads(resp.read())
+            content = base64.b64decode(result["content"]).decode("utf-8")
+            return json.loads(content), result["sha"]
+    except URLError:
+        return DEFAULT_DATA.copy(), None
+
+
+def _github_write(config: dict, data: dict, sha: str | None):
+    """Write portfolio data to GitHub repo via API."""
+    url = f"https://api.github.com/repos/{config['repo']}/contents/{REPO_FILE_PATH}"
+    content_b64 = base64.b64encode(json.dumps(data, indent=2, default=str).encode()).decode()
+    body = {
+        "message": f"Portfolio update {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "content": content_b64,
+    }
+    if sha:
+        body["sha"] = sha
+    payload = json.dumps(body).encode()
+    req = Request(url, data=payload, method="PUT", headers={
+        "Authorization": f"token {config['token']}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    })
+    try:
+        with urlopen(req) as resp:
+            resp.read()
+    except URLError:
+        pass
+
+
+def _local_file() -> str:
+    """Resolve writable local path for portfolio data."""
+    primary = os.path.join(os.path.dirname(os.path.abspath(__file__)), REPO_FILE_PATH)
     try:
         with open(primary, "a"):
             pass
         return primary
     except OSError:
-        return os.path.join("/tmp", "portfolio_data.json")
+        return os.path.join("/tmp", REPO_FILE_PATH)
 
 
 def _load() -> dict:
-    path = _data_file()
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return json.load(f)
-    return {"total_pot": 2_000_000, "purchases": []}
+    gh = _github_config()
+    if gh:
+        data, _ = _github_read(gh)
+        return data
+    path = _local_file()
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return DEFAULT_DATA.copy()
 
 
 def _save(data: dict):
-    with open(_data_file(), "w") as f:
+    gh = _github_config()
+    if gh:
+        _, sha = _github_read(gh)
+        _github_write(gh, data, sha)
+    path = _local_file()
+    with open(path, "w") as f:
         json.dump(data, f, indent=2, default=str)
 
 
@@ -58,6 +132,18 @@ def delete_purchase(purchase_id: int):
     data = _load()
     data["purchases"] = [p for p in data["purchases"] if p["id"] != purchase_id]
     _save(data)
+
+
+def export_portfolio_json() -> str:
+    """Export portfolio data as JSON string (for download)."""
+    return json.dumps(_load(), indent=2, default=str)
+
+
+def import_portfolio_json(json_str: str):
+    """Import portfolio data from JSON string (from upload)."""
+    data = json.loads(json_str)
+    if "total_pot" in data and "purchases" in data:
+        _save(data)
 
 
 def get_summary(current_etc_prices: dict) -> dict:
