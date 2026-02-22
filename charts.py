@@ -55,7 +55,7 @@ def _series_to_histogram(series: pd.Series, df: pd.DataFrame,
 
 
 def _has_intraday_index(df: pd.DataFrame) -> bool:
-    if df.index.dtype == "datetime64[ns]" and len(df) > 1:
+    if len(df) > 1 and hasattr(df.index, "dtype") and pd.api.types.is_datetime64_any_dtype(df.index):
         diff = (df.index[1] - df.index[0]).total_seconds()
         return diff < 86400
     return False
