@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
 from datetime import datetime
 
 from data import (
@@ -13,9 +11,10 @@ from data import (
 from technicals import (
     multi_timeframe_fibonacci, vobhs_composite, detect_triangles,
     bollinger_squeeze, momentum_bars, whale_volume_detection,
-    rsi, sma_crossover,
+    rsi, sma_crossover, fibonacci_levels,
 )
 from signals import score_metal, allocation_recommendation
+from charts import render_metal_chart
 from portfolio import (
     get_portfolio, set_total_pot, add_purchase, delete_purchase, get_summary,
     export_portfolio_json, import_portfolio_json, _github_config,
@@ -177,77 +176,27 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
                         continue
                     st.write(f"  {ratio_key}: ${value:,.0f}")
 
-        # --- Charts ---
+        # --- Timeframe Switcher + Charts ---
         st.subheader(f"{metal.title()} Charts")
 
-        # Price + HMA + SMA + Fibonacci
-        if len(df_daily) > 50:
-            vobhs = vobhs_composite(df_daily)
-            sma_data = sma_crossover(df_daily["Close"], fast=sma_fast, slow=sma_slow)
-            rsi_vals = rsi(df_daily["Close"], period=rsi_period)
-            mom = momentum_bars(df_daily)
+        tf_options = {"2 Years": "long_term", "3 Months": "medium_term", "4 Weeks": "short_term"}
+        selected_tf = st.radio("Timeframe", list(tf_options.keys()), horizontal=True, key=f"tf_{metal}")
+        tf_key = tf_options[selected_tf]
+        chart_df = tf_data[tf_key]
 
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(
-                x=df_daily.index, open=df_daily["Open"], high=df_daily["High"],
-                low=df_daily["Low"], close=df_daily["Close"], name="Price",
-            ))
-            fig.add_trace(go.Scatter(x=df_daily.index, y=vobhs["hull_ma"], name="HMA", line=dict(color="purple", width=1)))
-            fig.add_trace(go.Scatter(x=sma_data.index, y=sma_data[f"sma_{sma_fast}"], name=f"SMA {sma_fast}", line=dict(color="orange", width=1, dash="dot")))
-            fig.add_trace(go.Scatter(x=sma_data.index, y=sma_data[f"sma_{sma_slow}"], name=f"SMA {sma_slow}", line=dict(color="cyan", width=1, dash="dot")))
+        if not chart_df.empty and len(chart_df) > 20:
+            chart_fib = fib.get(tf_key, {})
+            render_metal_chart(
+                chart_df, chart_fib, metal, selected_tf,
+                sma_fast=sma_fast, sma_slow=sma_slow, rsi_period=rsi_period,
+                chart_key=f"tv_{metal}_{tf_key}",
+            )
 
-            # Fibonacci lines for medium-term
-            mt_fib = fib.get("medium_term", {})
-            for ratio_key, level in mt_fib.items():
-                if ratio_key in ("swing_high", "swing_low"):
-                    continue
-                fig.add_hline(y=level, line_dash="dash", line_color="gray",
-                              annotation_text=f"Fib {ratio_key}", annotation_position="left")
-
-            fig.update_layout(title=f"{metal.title()} Price + HMA + SMA + Fib", height=500, xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-            # RSI chart
-            fig_rsi = go.Figure()
-            fig_rsi.add_trace(go.Scatter(x=rsi_vals.index, y=rsi_vals, name="RSI", line=dict(color="blue")))
-            fig_rsi.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Overbought")
-            fig_rsi.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Oversold")
-            fig_rsi.update_layout(title="RSI", height=250)
-            st.plotly_chart(fig_rsi, use_container_width=True)
-
-            # VOBHS Oscillator
-            vo = vobhs["volatility_oscillator"]
-            fig_vo = go.Figure()
-            fig_vo.add_trace(go.Bar(x=vo.index, y=vo["spike"], name="VO Spike",
-                                    marker_color=np.where(vo["spike"] > vo["upper"], "green",
-                                                          np.where(vo["spike"] < vo["lower"], "red", "gray"))))
-            fig_vo.add_trace(go.Scatter(x=vo.index, y=vo["upper"], name="Upper Band", line=dict(color="green", dash="dash")))
-            fig_vo.add_trace(go.Scatter(x=vo.index, y=vo["lower"], name="Lower Band", line=dict(color="red", dash="dash")))
-            fig_vo.update_layout(title="Volatility Oscillator", height=250)
-            st.plotly_chart(fig_vo, use_container_width=True)
-
-            # Boom Hunter Pro
-            boom = vobhs["boom_hunter"]
-            fig_boom = go.Figure()
-            fig_boom.add_trace(go.Scatter(x=boom.index, y=boom["trigger"], name="Trigger", line=dict(color="white")))
-            fig_boom.add_trace(go.Scatter(x=boom.index, y=boom["quotient"], name="Quotient", line=dict(color="red")))
-            fig_boom.update_layout(title="Boom Hunter Pro (BHS)", height=250)
-            st.plotly_chart(fig_boom, use_container_width=True)
-
-            # Momentum Bars
-            fig_mom = go.Figure()
-            colors = np.where(mom["direction"] == 2, "darkgreen",
-                     np.where(mom["direction"] == 1, "lightgreen",
-                     np.where(mom["direction"] == -1, "salmon", 
-                     np.where(mom["direction"] == -2, "darkred", "gray"))))
-            fig_mom.add_trace(go.Bar(x=mom.index, y=mom["roc"], name="Momentum", marker_color=colors))
-            fig_mom.update_layout(title="Momentum Bars (ROC)", height=250)
-            st.plotly_chart(fig_mom, use_container_width=True)
-
-            # Triangle detection
-            tri = detect_triangles(df_daily)
+            tri = detect_triangles(chart_df)
             if tri["pattern"] not in ("no_pattern", "insufficient_data"):
                 st.info(f"Triangle pattern detected: **{tri['pattern']}** | Breakout Up: {tri['breakout_up']} | Breakout Down: {tri['breakout_down']}")
+        else:
+            st.warning(f"Insufficient data for {selected_tf} chart")
 
 # ========================= ALLOCATION RECOMMENDATION =========================
 st.header("Allocation Recommendation")
