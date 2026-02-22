@@ -55,7 +55,18 @@ _HEADERS = {
 _SKIP_PHRASES = [
     "cookie", "subscribe", "sign up", "newsletter", "javascript",
     "read more", "advertisement", "copyright", "all rights",
-    "privacy policy", "terms of use", "log in", "create account",
+    "privacy policy", "terms of use", "terms of service", "log in",
+    "create account", "download the", "download our", "get the app",
+    "mutual fund", "calculator", "catch all the", "also read",
+    "related article", "recommended for you", "trending now",
+    "share this", "follow us", "join our", "breaking news alert",
+    "file photo", "representational image", "getty images",
+    "skip to", "menu", "navigation", "breadcrumb", "sidebar",
+    "home /", "home/", "whatsapp", "telegram", "facebook", "twitter",
+    "summarize this", "ai analysis", "table of contents",
+    "mins read", "min read", "global market insights",
+    "updated:", "/ updated", "text size", "share aa",
+    "toi business", "timesofindia", "comments share",
 ]
 
 
@@ -80,6 +91,7 @@ def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
                         "published": entry.get("published", ""),
                         "source": feed_name,
                         "source_domain": source_domain,
+                        "rss_summary": summary,
                         "matched_keywords": matched,
                     })
         except Exception:
@@ -131,13 +143,27 @@ def _resolve_google_news_url(link: str) -> str:
 def _resolve_and_summarize(article: dict) -> tuple[str, str]:
     """Resolve real URL and fetch summary for an article."""
     link = article["link"]
+    title = article.get("title", "")
 
     real_url = _resolve_google_news_url(link) or link
-    summary = _fetch_and_extract(real_url) if "news.google.com" not in real_url else ""
+    if "news.google.com" in real_url:
+        return real_url, ""
+    summary = _fetch_and_extract(real_url)
+    # If extraction grabbed irrelevant content, discard it
+    if summary and title and not _has_topic_overlap(summary, title):
+        summary = ""
     return real_url, summary
 
 
-def _fetch_and_extract(url: str, timeout: int = 8) -> str:
+def _has_topic_overlap(text: str, title: str) -> bool:
+    """Check if extracted text shares keywords with the article title."""
+    title_words = set(w.lower() for w in re.findall(r'\w{4,}', title))
+    text_lower = text.lower()
+    matches = sum(1 for w in title_words if w in text_lower)
+    return matches >= 2
+
+
+def _fetch_and_extract(url: str, timeout: int = 10) -> str:
     """Fetch a URL and extract first 2 meaningful paragraphs."""
     if not url:
         return ""
@@ -147,12 +173,15 @@ def _fetch_and_extract(url: str, timeout: int = 8) -> str:
             content_type = resp.headers.get("Content-Type", "")
             if "text/html" not in content_type:
                 return ""
-            raw = resp.read(200_000)
-            for encoding in ("utf-8", "latin-1", "ascii"):
+            raw = resp.read(500_000)
+            charset = "utf-8"
+            if "charset=" in content_type:
+                charset = content_type.split("charset=")[-1].strip().split(";")[0]
+            for encoding in (charset, "utf-8", "latin-1"):
                 try:
                     html_text = raw.decode(encoding)
                     break
-                except (UnicodeDecodeError, ValueError):
+                except (UnicodeDecodeError, ValueError, LookupError):
                     continue
             else:
                 return ""
@@ -169,35 +198,81 @@ def _strip_tags(text: str) -> str:
     return text
 
 
+def _is_article_text(text: str) -> bool:
+    """Check if text looks like actual article content, not boilerplate."""
+    low = text.lower()
+    if any(skip in low for skip in _SKIP_PHRASES):
+        return False
+    if len(text) < 80:
+        return False
+    # Must contain a proper sentence ending (lowercase letter followed by period)
+    if not re.search(r'[a-z][.!]\s', text + " ") and not re.search(r'[a-z][.]$', text):
+        return False
+    # Reject CSS, JS, encoded content, language menus, or non-Latin nav
+    if re.search(r'(font-face|@media|url\(|\.com/s/|src:|{|}|;|Edition\s+IN|ePaper|Sign\s+In\s+TOI)', text):
+        return False
+    # Reject if contains non-Latin scripts (language selectors)
+    if re.search(r'[\u0900-\u0DFF\u0E00-\u0EFF]', text):
+        return False
+    # Must have enough real words
+    words = text.split()
+    if len(words) < 12:
+        return False
+    # Reject if too many capitalised words (likely headlines/nav)
+    caps = sum(1 for w in words if w.isupper() and len(w) > 2)
+    if caps > len(words) * 0.5:
+        return False
+    return True
+
+
+def _clean_html(html_text: str) -> str:
+    """Remove script, style, nav, header, footer, aside tags and their content."""
+    for tag in ("script", "style", "nav", "header", "footer", "aside", "noscript"):
+        html_text = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html_text, flags=re.DOTALL | re.IGNORECASE)
+    return html_text
+
+
 def _extract_paragraphs(html_text: str, count: int = 2) -> str:
-    """Extract first N meaningful paragraphs from HTML."""
-    paras = re.findall(r"<p[^>]*>(.*?)</p>", html_text, re.DOTALL | re.IGNORECASE)
+    """Extract first N meaningful article paragraphs from HTML."""
+    html_text = _clean_html(html_text)
+
+    # Try <article> first, then <main>, then full page
+    article_html = html_text
+    for tag in ("article", "main", r'div[^>]*class="[^"]*(?:article|story|content|post)[^"]*"'):
+        match = re.search(rf"<{tag}[^>]*>(.*?)</{tag.split('[')[0]}>", html_text, re.DOTALL | re.IGNORECASE)
+        if match and len(match.group(1)) > 200:
+            article_html = match.group(1)
+            break
+
+    # Extract <p> from narrowed scope
+    paras = re.findall(r"<p[^>]*>(.*?)</p>", article_html, re.DOTALL | re.IGNORECASE)
     clean = []
     for p in paras:
         text = _strip_tags(p).strip()
-        if len(text) > 60 and not any(skip in text.lower() for skip in _SKIP_PHRASES):
+        if _is_article_text(text):
             clean.append(text)
             if len(clean) >= count:
-                break
+                return " ".join(clean)
 
     if clean:
         return " ".join(clean)
 
-    # Fallback: extract from <article> or <body>
-    for tag in ("article", "body"):
-        match = re.search(rf"<{tag}[^>]*>(.*)</{tag}>", html_text, re.DOTALL | re.IGNORECASE)
-        if match:
-            text = _strip_tags(match.group(1))
-            sentences = re.split(r"(?<=[.!?])\s+", text)
-            result = []
-            char_count = 0
-            for s in sentences:
-                if len(s) > 30 and not any(skip in s.lower() for skip in _SKIP_PHRASES):
-                    result.append(s)
-                    char_count += len(s)
-                    if char_count >= 300:
-                        break
-            if result:
-                return " ".join(result)
+    # Fallback: sentence extraction from cleaned body
+    plain = _strip_tags(article_html)
+    # Reject if plain text has non-Latin scripts (nav/language menus leaked)
+    if re.search(r'[\u0900-\u0DFF\u0E00-\u0EFF]', plain[:2000]):
+        plain = re.sub(r'[\u0900-\u0DFF\u0E00-\u0EFF]+', ' ', plain)
+    sentences = re.split(r'(?<=[.!?])\s+', plain)
+    result = []
+    char_count = 0
+    for s in sentences:
+        s = s.strip()
+        if _is_article_text(s):
+            result.append(s)
+            char_count += len(s)
+            if char_count >= 300:
+                break
+    if result:
+        return " ".join(result[:3])
 
     return ""
