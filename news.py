@@ -2,9 +2,25 @@ import feedparser
 import re
 import html
 import urllib.parse
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+def _parse_date(date_str: str) -> float:
+    """Parse RSS date string to Unix timestamp for sorting. Returns 0 on failure."""
+    if not date_str:
+        return 0.0
+    try:
+        return parsedate_to_datetime(date_str).timestamp()
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(date_str).timestamp()
+    except Exception:
+        return 0.0
 
 # Google News RSS feeds -- targeted searches for each catalyst
 FEEDS = [
@@ -78,7 +94,8 @@ def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
             seen_titles.add(t)
             unique.append(a)
 
-    unique.sort(key=lambda x: len(x["matched_keywords"]), reverse=True)
+    # Sort newest first, then by keyword relevance as tiebreaker
+    unique.sort(key=lambda x: (_parse_date(x.get("published", "")), len(x["matched_keywords"])), reverse=True)
     top = unique[:max_articles]
 
     # Prefetch article summaries in parallel
