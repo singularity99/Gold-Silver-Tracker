@@ -349,13 +349,22 @@ with st.expander("Log New Purchase"):
 # ========================= NEWS FEED =========================
 st.header("Catalyst News Feed")
 
-with st.spinner("Fetching headlines..."):
+with st.spinner("Fetching headlines and article summaries..."):
     articles = fetch_catalyst_news()
 
 if articles:
     for art in articles:
         kws = ", ".join(art["matched_keywords"][:3])
-        st.markdown(f"**{art['title']}**  \n*{art['source']}* | Keywords: {kws}  \n[Read]({art['link']})")
+        summary_text = art.get("summary_text", "")
+        read_link = art.get("real_link", art["link"])
+        st.markdown(f"**{art['title']}**  \n*{art['source']}* | Keywords: {kws}")
+        if summary_text:
+            display = summary_text[:500] + "..." if len(summary_text) > 500 else summary_text
+            st.caption(display)
+        else:
+            st.caption("(Summary not available)")
+        st.markdown(f"[Read full article]({read_link})")
+        st.divider()
 else:
     st.write("No catalyst headlines found right now.")
 

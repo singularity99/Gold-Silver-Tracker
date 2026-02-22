@@ -1,4 +1,10 @@
 import feedparser
+import re
+import html
+import urllib.parse
+from urllib.request import Request, urlopen
+from urllib.error import URLError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Google News RSS feeds -- targeted searches for each catalyst
 FEEDS = [
@@ -23,9 +29,22 @@ CATALYST_KEYWORDS = [
     "platinum", "palladium",
 ]
 
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+_SKIP_PHRASES = [
+    "cookie", "subscribe", "sign up", "newsletter", "javascript",
+    "read more", "advertisement", "copyright", "all rights",
+    "privacy policy", "terms of use", "log in", "create account",
+]
+
 
 def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
-    """Fetch and filter news articles matching catalyst keywords from multiple sources."""
+    """Fetch and filter news articles, then prefetch 2-paragraph summaries."""
     articles = []
     for feed_name, feed_url in FEEDS:
         try:
@@ -36,11 +55,15 @@ def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
                 text = (title + " " + summary).lower()
                 matched = [kw for kw in CATALYST_KEYWORDS if kw in text]
                 if matched:
+                    # Extract source info for Google News URL resolution
+                    source_info = entry.get("source", {})
+                    source_domain = source_info.get("href", "")
                     articles.append({
                         "title": title,
                         "link": entry.get("link", ""),
                         "published": entry.get("published", ""),
                         "source": feed_name,
+                        "source_domain": source_domain,
                         "matched_keywords": matched,
                     })
         except Exception:
@@ -55,6 +78,129 @@ def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
             seen_titles.add(t)
             unique.append(a)
 
-    # Sort by keyword relevance (more keyword matches = more relevant)
     unique.sort(key=lambda x: len(x["matched_keywords"]), reverse=True)
-    return unique[:max_articles]
+    top = unique[:max_articles]
+
+    # Prefetch article summaries in parallel
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_resolve_and_summarize, a): a for a in top}
+        for future in as_completed(futures):
+            article = futures[future]
+            try:
+                real_url, summary_text = future.result()
+                article["real_link"] = real_url or article["link"]
+                article["summary_text"] = summary_text
+            except Exception:
+                article["real_link"] = article["link"]
+                article["summary_text"] = ""
+
+    return top
+
+
+def _resolve_google_news_url(title: str, source_domain: str) -> str:
+    """Resolve a Google News link to the actual article URL via Google search."""
+    if not source_domain:
+        return ""
+    # Strip publisher suffix from title (e.g. "Headline - CNBC" -> "Headline")
+    clean_title = title.rsplit(" - ", 1)[0] if " - " in title else title
+    site = source_domain.replace("https://", "").replace("http://", "").rstrip("/")
+    q = urllib.parse.quote(f"{clean_title} site:{site}")
+    search_url = f"https://www.google.com/search?q={q}&btnI=1"
+    try:
+        req = Request(search_url, headers=_HEADERS)
+        with urlopen(req, timeout=8) as resp:
+            final = resp.url
+            # Google wraps in /url?q=REAL_URL
+            if "/url?q=" in final:
+                parsed = urllib.parse.urlparse(final)
+                params = urllib.parse.parse_qs(parsed.query)
+                return params.get("q", [final])[0]
+            if "news.google.com" not in final:
+                return final
+    except Exception:
+        pass
+    return ""
+
+
+def _resolve_and_summarize(article: dict) -> tuple[str, str]:
+    """Resolve real URL and fetch summary for an article."""
+    link = article["link"]
+    title = article["title"]
+    source_domain = article.get("source_domain", "")
+
+    # If it's a Google News link, resolve to real URL
+    real_url = link
+    if "news.google.com" in link:
+        resolved = _resolve_google_news_url(title, source_domain)
+        if resolved:
+            real_url = resolved
+
+    # Fetch and extract summary from the real article
+    summary = _fetch_and_extract(real_url) if real_url else ""
+    return real_url, summary
+
+
+def _fetch_and_extract(url: str, timeout: int = 8) -> str:
+    """Fetch a URL and extract first 2 meaningful paragraphs."""
+    if not url:
+        return ""
+    try:
+        req = Request(url, headers=_HEADERS)
+        with urlopen(req, timeout=timeout) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" not in content_type:
+                return ""
+            raw = resp.read(200_000)
+            for encoding in ("utf-8", "latin-1", "ascii"):
+                try:
+                    html_text = raw.decode(encoding)
+                    break
+                except (UnicodeDecodeError, ValueError):
+                    continue
+            else:
+                return ""
+            return _extract_paragraphs(html_text, count=2)
+    except Exception:
+        return ""
+
+
+def _strip_tags(text: str) -> str:
+    """Remove HTML tags and decode entities."""
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _extract_paragraphs(html_text: str, count: int = 2) -> str:
+    """Extract first N meaningful paragraphs from HTML."""
+    paras = re.findall(r"<p[^>]*>(.*?)</p>", html_text, re.DOTALL | re.IGNORECASE)
+    clean = []
+    for p in paras:
+        text = _strip_tags(p).strip()
+        if len(text) > 60 and not any(skip in text.lower() for skip in _SKIP_PHRASES):
+            clean.append(text)
+            if len(clean) >= count:
+                break
+
+    if clean:
+        return " ".join(clean)
+
+    # Fallback: extract from <article> or <body>
+    for tag in ("article", "body"):
+        match = re.search(rf"<{tag}[^>]*>(.*)</{tag}>", html_text, re.DOTALL | re.IGNORECASE)
+        if match:
+            text = _strip_tags(match.group(1))
+            sentences = re.split(r"(?<=[.!?])\s+", text)
+            result = []
+            char_count = 0
+            for s in sentences:
+                if len(s) > 30 and not any(skip in s.lower() for skip in _SKIP_PHRASES):
+                    result.append(s)
+                    char_count += len(s)
+                    if char_count >= 300:
+                        break
+            if result:
+                return " ".join(result)
+
+    return ""
