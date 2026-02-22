@@ -123,19 +123,50 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
 
         # --- Signal Banner ---
         sig = score["signal"]
+        comp = score["composite_score"]
+        banner = f"**{sig}** | Score: {comp:+.2f} | {score['bullish_votes']}B / {score['bearish_votes']}S / {score['neutral_votes']}N out of {score['total_indicators']}"
         if "Strong Buy" in sig:
-            st.success(f"**{sig}** | Strength: {score['strength']} | Bullish: {score['bullish_votes']}/{score['total_indicators']} indicators")
+            st.success(banner)
         elif "Buy" in sig:
-            st.info(f"**{sig}** | Strength: {score['strength']} | Bullish: {score['bullish_votes']}/{score['total_indicators']} indicators")
+            st.info(banner)
         elif "Sell" in sig or "Strong Sell" in sig:
-            st.error(f"**{sig}** | Strength: {score['strength']} | Bearish: {score['bearish_votes']}/{score['total_indicators']} indicators")
+            st.error(banner)
         else:
-            st.warning(f"**{sig}** | Strength: {score['strength']} | Mixed: {score['bullish_votes']}B / {score['bearish_votes']}S out of {score['total_indicators']}")
+            st.warning(banner)
 
-        # --- Indicator Details ---
-        with st.expander("Indicator Breakdown"):
-            for k, v in score["details"].items():
-                st.write(f"- **{k.replace('_', ' ').title()}**: {v}")
+        # --- Timeframe Sub-Scores ---
+        tf_scores = score["timeframe_scores"]
+        tf_weights = score["timeframe_weights"]
+        tf_cols = st.columns(3)
+        for i, (tf, label) in enumerate([("Short", "Short-term (days-weeks)"), ("Medium", "Medium-term (weeks-months)"), ("Long", "Long-term (months-years)")]):
+            val = tf_scores[tf]
+            pct = tf_weights[tf]
+            color = "green" if val > 0.1 else ("red" if val < -0.1 else "gray")
+            tf_cols[i].metric(f"{label} ({pct}% weight)", f"{val:+.2f}",
+                              "Bullish" if val > 0.1 else ("Bearish" if val < -0.1 else "Neutral"))
+
+        # --- Correlation Conflicts ---
+        if score["conflicts"]:
+            for conflict in score["conflicts"]:
+                st.warning(f"Conflict: {conflict}")
+
+        # --- Weighted Indicator Breakdown Table ---
+        with st.expander("Indicator Breakdown (weighted)"):
+            table_df = pd.DataFrame(score["indicator_table"])
+            def _color_vote(val):
+                if val == "Bullish":
+                    return "color: green"
+                elif val == "Bearish":
+                    return "color: red"
+                return "color: gray"
+            def _color_wscore(val):
+                if val > 0:
+                    return "color: green"
+                elif val < 0:
+                    return "color: red"
+                return "color: gray"
+            styled = table_df.style.applymap(_color_vote, subset=["Vote"]).applymap(_color_wscore, subset=["Weighted Score"])
+            st.dataframe(styled, use_container_width=True, hide_index=True)
 
         # --- Fibonacci Levels ---
         with st.expander("Fibonacci Levels"):

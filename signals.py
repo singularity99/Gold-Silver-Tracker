@@ -6,7 +6,6 @@ from technicals import (
     rsi, sma_crossover, FIBONACCI_RATIOS,
 )
 
-
 SIGNAL_STRONG_BUY = "Strong Buy"
 SIGNAL_BUY = "Buy"
 SIGNAL_NEUTRAL = "Neutral"
@@ -17,13 +16,37 @@ STRENGTH_STRONG = "Strong"
 STRENGTH_MODERATE = "Moderate"
 STRENGTH_WEAK = "Weak"
 
+# Indicator definitions: (name, timeframe, weight, correlation_group)
+# Weights sum to 100. Tilted toward short/medium for weeks-to-months trading.
+# Short: 45%, Medium: 40%, Long: 15%
+INDICATORS = [
+    ("Fib Long-term (2yr)",    "Long",   5,  "Price Levels"),
+    ("Fib Medium-term (3mo)",  "Medium", 10, "Price Levels"),
+    ("Fib Short-term (2-3wk)", "Short",  8,  "Price Levels"),
+    ("Volatility Oscillator",  "Short",  9,  "Volatility"),
+    ("Boom Hunter Pro (BHS)",  "Short",  12, "Trend (COG)"),
+    ("Hull Moving Average",    "Medium", 7,  "Trend (MA)"),
+    ("Modified ATR",           "Long",   4,  "Volatility"),
+    ("Triangle Pattern",       "Medium", 7,  "Pattern"),
+    ("Bollinger Squeeze",      "Medium", 6,  "Volatility"),
+    ("Momentum Bars (ROC)",    "Short",  9,  "Momentum"),
+    ("Whale Volume",           "Short",  7,  "Volume"),
+    ("RSI (14)",               "Medium", 10, "Momentum"),
+    ("SMA Crossover (20/50)",  "Long",   6,  "Trend (MA)"),
+]
+
+# Correlated pairs -- used for conflict detection
+CORRELATED_PAIRS = [
+    ("Hull Moving Average", "SMA Crossover (20/50)", "Trend (MA)"),
+    ("RSI (14)", "Momentum Bars (ROC)", "Momentum"),
+    ("Volatility Oscillator", "Bollinger Squeeze", "Volatility"),
+]
+
 
 def _price_near_fib_support(price: float, fib_levels: dict, tolerance_pct: float = 2.0) -> bool:
-    """Check if price is within tolerance of any Fibonacci support level (lower half)."""
     if not fib_levels:
         return False
-    support_ratios = ["78.6%", "61.8%", "50.0%"]
-    for ratio_key in support_ratios:
+    for ratio_key in ["78.6%", "61.8%", "50.0%"]:
         level = fib_levels.get(ratio_key)
         if level and abs(price - level) / level * 100 <= tolerance_pct:
             return True
@@ -31,162 +54,245 @@ def _price_near_fib_support(price: float, fib_levels: dict, tolerance_pct: float
 
 
 def _price_near_fib_resistance(price: float, fib_levels: dict, tolerance_pct: float = 2.0) -> bool:
-    """Check if price is within tolerance of any Fibonacci resistance level (upper half)."""
     if not fib_levels:
         return False
-    resist_ratios = ["23.6%", "0.0%"]
-    for ratio_key in resist_ratios:
+    for ratio_key in ["23.6%", "0.0%"]:
         level = fib_levels.get(ratio_key)
         if level and abs(price - level) / level * 100 <= tolerance_pct:
             return True
     return False
 
 
+def _fib_vote(price: float, fib_levels: dict) -> tuple[int, str]:
+    if _price_near_fib_support(price, fib_levels):
+        return 1, "Near support (bullish)"
+    elif _price_near_fib_resistance(price, fib_levels):
+        return -1, "Near resistance (bearish)"
+    return 0, "Between levels"
+
+
 def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
     """
-    Compute composite signal score for a single metal.
-    Returns dict with signal, strength, votes, and component details.
+    Compute weighted composite signal score for a single metal.
+    All 13 indicators always vote. Weighted by importance and trading horizon.
     """
-    votes = []
-    details = {}
+    votes = {}  # indicator_name -> (vote, detail_text)
 
-    # --- Fibonacci proximity ---
-    for tf_name, fib_levels in fib_data.items():
-        near_support = _price_near_fib_support(current_price, fib_levels)
-        near_resistance = _price_near_fib_resistance(current_price, fib_levels)
-        if near_support:
-            votes.append(1)
-            details[f"fib_{tf_name}"] = "Near support (bullish)"
-        elif near_resistance:
-            votes.append(-1)
-            details[f"fib_{tf_name}"] = "Near resistance (bearish)"
-        else:
-            votes.append(0)
-            details[f"fib_{tf_name}"] = "Between levels"
+    # --- Fibonacci (3 timeframes) ---
+    tf_map = {"long_term": "Fib Long-term (2yr)",
+              "medium_term": "Fib Medium-term (3mo)",
+              "short_term": "Fib Short-term (2-3wk)"}
+    for tf_key, ind_name in tf_map.items():
+        fib_levels = fib_data.get(tf_key, {})
+        vote, detail = _fib_vote(current_price, fib_levels)
+        votes[ind_name] = (vote, detail)
 
-    # --- VOBHS ---
+    # --- VOBHS components ---
     if len(df) > 100:
         vobhs = vobhs_composite(df)
 
-        vo_last = vobhs["volatility_oscillator"]["signal"].iloc[-1]
-        votes.append(int(vo_last))
-        details["volatility_osc"] = {1: "Bullish spike", -1: "Bearish spike", 0: "Neutral"}.get(vo_last, "Neutral")
+        # Volatility Oscillator
+        vo_last = int(vobhs["volatility_oscillator"]["signal"].iloc[-1])
+        votes["Volatility Oscillator"] = (vo_last,
+            {1: "Bullish spike above upper band", -1: "Bearish spike below lower band", 0: "Within bands (neutral)"}.get(vo_last, "Neutral"))
 
-        boom_last = vobhs["boom_hunter"]["signal"].iloc[-1]
-        boom_trend = 1 if vobhs["boom_hunter"]["trigger"].iloc[-1] > vobhs["boom_hunter"]["quotient"].iloc[-1] else -1
-        if boom_last != 0:
-            votes.append(int(boom_last))
-            details["boom_hunter"] = "Buy crossover" if boom_last == 1 else "Sell crossover"
+        # Boom Hunter Pro
+        boom = vobhs["boom_hunter"]
+        boom_cross = int(boom["signal"].iloc[-1])
+        if boom_cross != 0:
+            votes["Boom Hunter Pro (BHS)"] = (boom_cross,
+                "Buy crossover (trigger crossed above quotient)" if boom_cross == 1 else "Sell crossover (trigger crossed below quotient)")
         else:
-            votes.append(boom_trend)
-            details["boom_hunter"] = "Trigger above quotient (bullish)" if boom_trend == 1 else "Trigger below quotient (bearish)"
+            boom_trend = 1 if boom["trigger"].iloc[-1] > boom["quotient"].iloc[-1] else -1
+            votes["Boom Hunter Pro (BHS)"] = (boom_trend,
+                "Trigger above quotient (bullish trend)" if boom_trend == 1 else "Trigger below quotient (bearish trend)")
 
+        # Hull Moving Average
         hma_last = int(vobhs["hma_signal"].iloc[-1])
-        votes.append(hma_last)
-        details["hull_ma"] = {1: "Price above HMA (bullish)", -1: "Price below HMA (bearish)", 0: "Neutral"}.get(hma_last, "Neutral")
+        votes["Hull Moving Average"] = (hma_last,
+            {1: "Price above HMA (bullish)", -1: "Price below HMA (bearish)", 0: "At HMA (neutral)"}.get(hma_last, "Neutral"))
 
-        atr_data = vobhs["modified_atr"]
-        details["stop_long"] = f"${atr_data['stop_long'].iloc[-1]:,.0f}"
-        details["stop_short"] = f"${atr_data['stop_short'].iloc[-1]:,.0f}"
-    else:
-        details["vobhs"] = "Insufficient data"
-
-    # --- Triangle patterns ---
-    tri = detect_triangles(df)
-    if tri["pattern"] != "no_pattern" and tri["pattern"] != "insufficient_data":
-        if tri.get("breakout_up"):
-            votes.append(1)
-            details["triangle"] = f"{tri['pattern']} -- breakout UP"
-        elif tri.get("breakout_down"):
-            votes.append(-1)
-            details["triangle"] = f"{tri['pattern']} -- breakout DOWN"
+        # Modified ATR -- now votes based on ATR trend (narrowing = bullish conviction, widening = caution)
+        atr_series = vobhs["modified_atr"]["atr"]
+        atr_current = atr_series.iloc[-1]
+        atr_avg = atr_series.rolling(20).mean().iloc[-1]
+        if not np.isnan(atr_current) and not np.isnan(atr_avg):
+            if atr_current < atr_avg * 0.8:
+                atr_vote = 1
+                atr_detail = f"ATR narrowing (${atr_current:,.0f} < avg ${atr_avg:,.0f}) -- low volatility, trend conviction"
+            elif atr_current > atr_avg * 1.2:
+                atr_vote = -1
+                atr_detail = f"ATR widening (${atr_current:,.0f} > avg ${atr_avg:,.0f}) -- high volatility, caution"
+            else:
+                atr_vote = 0
+                atr_detail = f"ATR normal (${atr_current:,.0f} ~ avg ${atr_avg:,.0f})"
         else:
-            votes.append(0)
-            details["triangle"] = f"{tri['pattern']} -- consolidating"
+            atr_vote = 0
+            atr_detail = "Insufficient ATR data"
+        stop_long = vobhs["modified_atr"]["stop_long"].iloc[-1]
+        stop_short = vobhs["modified_atr"]["stop_short"].iloc[-1]
+        atr_detail += f" | Stops: long ${stop_long:,.0f} / short ${stop_short:,.0f}"
+        votes["Modified ATR"] = (atr_vote, atr_detail)
     else:
-        details["triangle"] = "No triangle pattern"
+        for name in ["Volatility Oscillator", "Boom Hunter Pro (BHS)", "Hull Moving Average", "Modified ATR"]:
+            votes[name] = (0, "Insufficient data (<100 bars)")
 
-    # --- Bollinger Squeeze ---
+    # --- Triangle Pattern ---
+    tri = detect_triangles(df)
+    if tri["pattern"] not in ("no_pattern", "insufficient_data"):
+        if tri.get("breakout_up"):
+            votes["Triangle Pattern"] = (1, f"{tri['pattern']} -- breakout UP")
+        elif tri.get("breakout_down"):
+            votes["Triangle Pattern"] = (-1, f"{tri['pattern']} -- breakout DOWN")
+        else:
+            votes["Triangle Pattern"] = (0, f"{tri['pattern']} -- consolidating (no breakout yet)")
+    else:
+        votes["Triangle Pattern"] = (0, "No triangle pattern detected")
+
+    # --- Bollinger Squeeze -- now votes ---
     bsq = bollinger_squeeze(df)
     if not bsq.empty:
-        if bsq["squeeze_on"].iloc[-1]:
-            details["bollinger_squeeze"] = "Squeeze ON (consolidation, expect breakout)"
+        squeeze_on = bool(bsq["squeeze_on"].iloc[-1])
+        bb_width = bsq["bb_width"].iloc[-1]
+        bb_width_avg = bsq["bb_width"].rolling(20).mean().iloc[-1] if len(bsq) >= 20 else bb_width
+        if squeeze_on:
+            votes["Bollinger Squeeze"] = (1, f"Squeeze ON (bandwidth {bb_width:.4f}) -- expect breakout, bullish setup")
+        elif bb_width > bb_width_avg * 1.5:
+            votes["Bollinger Squeeze"] = (-1, f"Bands expanding ({bb_width:.4f}) -- volatile, potential reversal")
         else:
-            details["bollinger_squeeze"] = "Squeeze OFF (trending)"
+            votes["Bollinger Squeeze"] = (0, f"Normal bandwidth ({bb_width:.4f})")
+    else:
+        votes["Bollinger Squeeze"] = (0, "Insufficient data")
 
-    # --- Momentum ---
+    # --- Momentum Bars ---
     mom = momentum_bars(df)
     if not mom.empty:
         mom_dir = int(mom["direction"].iloc[-1])
+        roc_val = mom["roc"].iloc[-1]
+        label = {2: "Strong bullish", 1: "Mild bullish", -1: "Mild bearish", -2: "Strong bearish", 0: "Flat"}.get(mom_dir, "Flat")
         if mom_dir >= 1:
-            votes.append(1)
+            votes["Momentum Bars (ROC)"] = (1, f"{label} (ROC: {roc_val:+.1f}%)")
         elif mom_dir <= -1:
-            votes.append(-1)
+            votes["Momentum Bars (ROC)"] = (-1, f"{label} (ROC: {roc_val:+.1f}%)")
         else:
-            votes.append(0)
-        details["momentum"] = {2: "Strong bullish", 1: "Mild bullish", -1: "Mild bearish", -2: "Strong bearish", 0: "Flat"}.get(mom_dir, "Flat")
+            votes["Momentum Bars (ROC)"] = (0, f"{label} (ROC: {roc_val:+.1f}%)")
+    else:
+        votes["Momentum Bars (ROC)"] = (0, "Insufficient data")
 
-    # --- Whale volume ---
+    # --- Whale Volume -- always votes ---
     whale = whale_volume_detection(df)
     if not whale.empty and "whale_flag" in whale.columns:
-        if whale["whale_flag"].iloc[-1]:
-            votes.append(1)
-            details["whale_volume"] = f"HIGH VOLUME ({whale['volume_ratio'].iloc[-1]:.1f}x avg)"
+        ratio_val = whale["volume_ratio"].iloc[-1]
+        if not np.isnan(ratio_val):
+            if whale["whale_flag"].iloc[-1]:
+                votes["Whale Volume"] = (1, f"HIGH VOLUME ({ratio_val:.1f}x avg) -- institutional accumulation")
+            elif ratio_val < 0.5:
+                votes["Whale Volume"] = (-1, f"Low volume ({ratio_val:.1f}x avg) -- weak conviction")
+            else:
+                votes["Whale Volume"] = (0, f"Normal volume ({ratio_val:.1f}x avg)")
         else:
-            details["whale_volume"] = f"Normal ({whale['volume_ratio'].iloc[-1]:.1f}x avg)" if not np.isnan(whale["volume_ratio"].iloc[-1]) else "No volume data"
+            votes["Whale Volume"] = (0, "No volume data available")
+    else:
+        votes["Whale Volume"] = (0, "No volume data available")
 
     # --- RSI ---
     rsi_val = rsi(df["Close"]).iloc[-1]
-    if rsi_val < 30:
-        votes.append(1)
-        details["rsi"] = f"{rsi_val:.0f} (oversold -- bullish)"
-    elif rsi_val > 70:
-        votes.append(-1)
-        details["rsi"] = f"{rsi_val:.0f} (overbought -- bearish)"
+    if not np.isnan(rsi_val):
+        if rsi_val < 30:
+            votes["RSI (14)"] = (1, f"{rsi_val:.0f} -- oversold (bullish)")
+        elif rsi_val > 70:
+            votes["RSI (14)"] = (-1, f"{rsi_val:.0f} -- overbought (bearish)")
+        else:
+            votes["RSI (14)"] = (0, f"{rsi_val:.0f} -- neutral")
     else:
-        votes.append(0)
-        details["rsi"] = f"{rsi_val:.0f} (neutral)"
+        votes["RSI (14)"] = (0, "Insufficient data")
 
     # --- SMA Crossover ---
     sma_data = sma_crossover(df["Close"])
-    if sma_data["fast_above_slow"].iloc[-1]:
-        votes.append(1)
-        details["sma_cross"] = "20 SMA above 50 SMA (bullish)"
+    if not sma_data.empty:
+        if sma_data["fast_above_slow"].iloc[-1]:
+            votes["SMA Crossover (20/50)"] = (1, "20 SMA above 50 SMA (bullish)")
+        else:
+            votes["SMA Crossover (20/50)"] = (-1, "20 SMA below 50 SMA (bearish)")
     else:
-        votes.append(-1)
-        details["sma_cross"] = "20 SMA below 50 SMA (bearish)"
+        votes["SMA Crossover (20/50)"] = (0, "Insufficient data")
 
-    # --- Composite scoring ---
-    bullish = sum(1 for v in votes if v > 0)
-    bearish = sum(1 for v in votes if v < 0)
-    total = len(votes)
+    # --- Build weighted score ---
+    indicator_rows = []
+    weighted_sum = 0.0
+    tf_scores = {"Short": 0.0, "Medium": 0.0, "Long": 0.0}
+    tf_weights = {"Short": 0, "Medium": 0, "Long": 0}
 
-    if bullish >= 5 and any(_price_near_fib_support(current_price, fl) for fl in fib_data.values()):
+    for name, timeframe, weight, corr_group in INDICATORS:
+        vote, detail = votes.get(name, (0, "N/A"))
+        w_score = vote * weight
+        weighted_sum += w_score
+        tf_scores[timeframe] += w_score
+        tf_weights[timeframe] += weight
+        indicator_rows.append({
+            "Indicator": name,
+            "Timeframe": timeframe,
+            "Vote": {1: "Bullish", -1: "Bearish", 0: "Neutral"}.get(vote, "Neutral"),
+            "Weight": weight,
+            "Weighted Score": w_score,
+            "Correlation Group": corr_group,
+            "Detail": detail,
+        })
+
+    composite = weighted_sum / 100.0
+
+    # Per-timeframe sub-scores (normalized to -1..+1)
+    tf_normalized = {}
+    for tf in ("Short", "Medium", "Long"):
+        if tf_weights[tf] > 0:
+            tf_normalized[tf] = tf_scores[tf] / tf_weights[tf]
+        else:
+            tf_normalized[tf] = 0.0
+
+    # Conflict detection: flag when correlated indicators disagree
+    conflicts = []
+    for ind_a, ind_b, group in CORRELATED_PAIRS:
+        vote_a = votes.get(ind_a, (0, ""))[0]
+        vote_b = votes.get(ind_b, (0, ""))[0]
+        if vote_a != 0 and vote_b != 0 and vote_a != vote_b:
+            conflicts.append(
+                f"{group} conflict: {ind_a} is {'bullish' if vote_a > 0 else 'bearish'} "
+                f"but {ind_b} is {'bullish' if vote_b > 0 else 'bearish'}"
+            )
+
+    # Signal classification
+    if composite >= 0.40:
         signal = SIGNAL_STRONG_BUY
         strength = STRENGTH_STRONG
-    elif bullish >= 4:
-        signal = SIGNAL_STRONG_BUY
-        strength = STRENGTH_STRONG
-    elif bullish >= 3:
+    elif composite >= 0.20:
         signal = SIGNAL_BUY
         strength = STRENGTH_MODERATE
-    elif bearish >= 4:
+    elif composite <= -0.40:
         signal = SIGNAL_STRONG_SELL
         strength = STRENGTH_STRONG
-    elif bearish >= 3:
+    elif composite <= -0.20:
         signal = SIGNAL_SELL
         strength = STRENGTH_MODERATE
     else:
         signal = SIGNAL_NEUTRAL
         strength = STRENGTH_WEAK
 
+    bullish = sum(1 for name, _, _, _ in INDICATORS if votes.get(name, (0,))[0] > 0)
+    bearish = sum(1 for name, _, _, _ in INDICATORS if votes.get(name, (0,))[0] < 0)
+    neutral = sum(1 for name, _, _, _ in INDICATORS if votes.get(name, (0,))[0] == 0)
+
     return {
         "signal": signal,
         "strength": strength,
+        "composite_score": composite,
         "bullish_votes": bullish,
         "bearish_votes": bearish,
-        "total_indicators": total,
-        "details": details,
+        "neutral_votes": neutral,
+        "total_indicators": len(INDICATORS),
+        "indicator_table": indicator_rows,
+        "timeframe_scores": tf_normalized,
+        "timeframe_weights": {"Short": 45, "Medium": 40, "Long": 15},
+        "conflicts": conflicts,
     }
 
 
