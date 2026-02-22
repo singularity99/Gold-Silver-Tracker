@@ -146,7 +146,7 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
         tf_weights = score["timeframe_weights"]
         tf_cols = st.columns(3)
         for i, (tf, label) in enumerate([("Short", "Short-term (days-weeks)"), ("Medium", "Medium-term (weeks-months)"), ("Long", "Long-term (months-years)")]):
-            val = tf_scores[tf]
+            val = round(tf_scores[tf], 2)
             pct = tf_weights[tf]
             color = "green" if val > 0.1 else ("red" if val < -0.1 else "gray")
             if val >= 0.40:
