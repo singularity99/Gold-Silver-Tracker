@@ -74,12 +74,94 @@ def _fib_vote(price: float, fib_levels: dict) -> tuple[int, str]:
     return 0, "Between levels"
 
 
+def _compute_raw_values(df: pd.DataFrame) -> dict:
+    """Extract the raw numeric value for each indicator at the last bar and a lookback bar."""
+    vals = {}
+    if len(df) < 10:
+        return vals
+    close = df["Close"]
+
+    # Momentum ROC
+    mom = momentum_bars(df)
+    if not mom.empty and not np.isnan(mom["roc"].iloc[-1]):
+        vals["Momentum Bars (ROC)"] = (mom["roc"].iloc[-1], mom["roc"].iloc[-6] if len(mom) > 6 else mom["roc"].iloc[0])
+
+    # RSI
+    rsi_series = rsi(close)
+    if not rsi_series.empty and not np.isnan(rsi_series.iloc[-1]):
+        vals["RSI (14)"] = (rsi_series.iloc[-1], rsi_series.iloc[-6] if len(rsi_series) > 6 else rsi_series.iloc[0])
+
+    # EMA gap (fast - slow)
+    ema_data = ema_crossover(close)
+    if not ema_data.empty:
+        gap_now = ema_data["ema_9"].iloc[-1] - ema_data["ema_21"].iloc[-1]
+        gap_prev = ema_data["ema_9"].iloc[-6] - ema_data["ema_21"].iloc[-6] if len(ema_data) > 6 else gap_now
+        vals["EMA Crossover (9/21)"] = (gap_now, gap_prev)
+
+    # SMA gap
+    sma_data = sma_crossover(close)
+    if not sma_data.empty:
+        gap_now = sma_data["sma_20"].iloc[-1] - sma_data["sma_50"].iloc[-1]
+        gap_prev = sma_data["sma_20"].iloc[-6] - sma_data["sma_50"].iloc[-6] if len(sma_data) > 6 else gap_now
+        vals["SMA Crossover (20/50)"] = (gap_now, gap_prev)
+
+    # Whale volume ratio
+    whale = whale_volume_detection(df)
+    if not whale.empty and "volume_ratio" in whale.columns:
+        r_now = whale["volume_ratio"].iloc[-1]
+        r_prev = whale["volume_ratio"].iloc[-6] if len(whale) > 6 else r_now
+        if not np.isnan(r_now):
+            vals["Whale Volume"] = (r_now, r_prev if not np.isnan(r_prev) else r_now)
+
+    # VOBHS components
+    if len(df) > 100:
+        vobhs = vobhs_composite(df)
+        vo = vobhs["volatility_oscillator"]["spike"]
+        vals["Volatility Oscillator"] = (vo.iloc[-1], vo.iloc[-6] if len(vo) > 6 else vo.iloc[0])
+
+        boom = vobhs["boom_hunter"]
+        trig_now = boom["trigger"].iloc[-1] - boom["quotient"].iloc[-1]
+        trig_prev = (boom["trigger"].iloc[-6] - boom["quotient"].iloc[-6]) if len(boom) > 6 else trig_now
+        vals["Boom Hunter Pro (BHS)"] = (trig_now, trig_prev)
+
+        hma_now = df["Close"].iloc[-1] - vobhs["hull_ma"].iloc[-1]
+        hma_prev = (df["Close"].iloc[-6] - vobhs["hull_ma"].iloc[-6]) if len(vobhs["hull_ma"]) > 6 else hma_now
+        vals["Hull Moving Average"] = (hma_now, hma_prev)
+
+        atr = vobhs["modified_atr"]["atr"]
+        vals["Modified ATR"] = (atr.iloc[-1], atr.iloc[-6] if len(atr) > 6 else atr.iloc[0])
+
+    # Bollinger
+    bsq = bollinger_squeeze(df)
+    if not bsq.empty and len(bsq) > 6:
+        vals["Bollinger Squeeze"] = (bsq["bb_width"].iloc[-1], bsq["bb_width"].iloc[-6])
+
+    return vals
+
+
+def _direction_label(name: str, now: float, prev: float) -> str:
+    """Return an arrow + label showing direction of the raw value."""
+    if np.isnan(now) or np.isnan(prev):
+        return "-"
+    diff = now - prev
+    threshold = abs(prev) * 0.02 if prev != 0 else 0.01
+    if abs(diff) < threshold:
+        return "\u2194 Stable"
+    # For ATR and Bollinger width, rising = more volatile = deteriorating
+    inverted = name in ("Modified ATR", "Bollinger Squeeze")
+    if diff > 0:
+        return "\u2198 Deteriorating" if inverted else "\u2197 Improving"
+    else:
+        return "\u2197 Improving" if inverted else "\u2198 Deteriorating"
+
+
 def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
     """
     Compute weighted composite signal score for a single metal.
-    All 13 indicators always vote. Weighted by importance and trading horizon.
+    All 14 indicators always vote. Weighted by importance and trading horizon.
     """
     votes = {}  # indicator_name -> (vote, detail_text)
+    raw_values = _compute_raw_values(df)
 
     # --- Fibonacci (3 timeframes) ---
     tf_map = {"long_term": "Fib Long-term (2yr)",
@@ -246,10 +328,17 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
         weighted_sum += w_score
         tf_scores[timeframe] += w_score
         tf_weights[timeframe] += weight
+        # Direction from raw values
+        if name in raw_values:
+            now_val, prev_val = raw_values[name]
+            direction = _direction_label(name, now_val, prev_val)
+        else:
+            direction = "-"
         indicator_rows.append({
             "Indicator": name,
             "Timeframe": timeframe,
             "Vote": {1: "Bullish", -1: "Bearish", 0: "Neutral"}.get(vote, "Neutral"),
+            "Direction": direction,
             "Weight": weight,
             "Weighted Score": w_score,
             "Correlation Group": corr_group,

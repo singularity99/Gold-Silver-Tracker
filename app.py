@@ -220,7 +220,16 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
                 elif val < 0:
                     return "color: red"
                 return "color: gray"
-            styled = table_df.style.applymap(_color_vote, subset=["Vote"]).applymap(_color_wscore, subset=["Weighted Score"])
+            def _color_direction(val):
+                if "Improving" in str(val):
+                    return "color: green"
+                elif "Deteriorating" in str(val):
+                    return "color: red"
+                return "color: gray"
+            styled = (table_df.style
+                      .applymap(_color_vote, subset=["Vote"])
+                      .applymap(_color_wscore, subset=["Weighted Score"])
+                      .applymap(_color_direction, subset=["Direction"]))
             st.dataframe(styled, use_container_width=True, hide_index=True)
 
         # --- Fibonacci Levels ---
