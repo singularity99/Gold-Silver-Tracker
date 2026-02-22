@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from streamlit_lightweight_charts import renderLightweightCharts
 from technicals import (
-    vobhs_composite, rsi, sma_crossover, momentum_bars,
+    vobhs_composite, rsi, sma_crossover, ema_crossover, momentum_bars,
     bollinger_squeeze, whale_volume_detection, fibonacci_levels,
 )
 
@@ -75,12 +75,13 @@ def _fib_markers(fib_levels: dict, df: pd.DataFrame) -> list[dict]:
 
 
 def render_metal_chart(df: pd.DataFrame, fib_levels: dict, metal: str,
-                       timeframe_label: str, sma_fast: int = 20,
+                       timeframe_label: str, ema_fast: int = 9,
+                       ema_slow: int = 21, sma_fast: int = 20,
                        sma_slow: int = 50, rsi_period: int = 14,
                        chart_key: str = "chart"):
     """
     Render a multi-pane TradingView-style chart with:
-    Pane 1: Candlestick + HMA + SMA + Fibonacci lines
+    Pane 1: Candlestick + EMA + HMA + SMA + Fibonacci lines
     Pane 2: Volume (with whale detection coloring)
     Pane 3: RSI
     Pane 4: Volatility Oscillator
@@ -95,6 +96,7 @@ def render_metal_chart(df: pd.DataFrame, fib_levels: dict, metal: str,
     # Compute indicators
     vobhs = vobhs_composite(df) if len(df) > 100 else None
     rsi_vals = rsi(df["Close"], period=rsi_period)
+    ema_data = ema_crossover(df["Close"], fast=ema_fast, slow=ema_slow)
     sma_data = sma_crossover(df["Close"], fast=sma_fast, slow=sma_slow)
     mom = momentum_bars(df)
     whale = whale_volume_detection(df)
@@ -114,11 +116,23 @@ def render_metal_chart(df: pd.DataFrame, fib_levels: dict, metal: str,
         },
     ]
 
+    # EMA overlays (short-term trend)
+    price_series.append({
+        "type": "Line",
+        "data": _series_to_line(ema_data[f"ema_{ema_fast}"], df),
+        "options": {"color": "rgba(255,255,0,0.8)", "lineWidth": 1},
+    })
+    price_series.append({
+        "type": "Line",
+        "data": _series_to_line(ema_data[f"ema_{ema_slow}"], df),
+        "options": {"color": "rgba(255,200,0,0.8)", "lineWidth": 1},
+    })
+
     # SMA overlays
     price_series.append({
         "type": "Line",
         "data": _series_to_line(sma_data[f"sma_{sma_fast}"], df),
-        "options": {"color": "rgba(255,165,0,0.8)", "lineWidth": 1},
+        "options": {"color": "rgba(255,165,0,0.6)", "lineWidth": 1},
     })
     price_series.append({
         "type": "Line",

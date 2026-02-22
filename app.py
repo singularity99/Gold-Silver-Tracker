@@ -42,6 +42,8 @@ fib_tolerance = st.sidebar.slider("Fibonacci proximity tolerance (%)", 0.5, 5.0,
 gs_ratio_threshold = st.sidebar.number_input("G/S Ratio threshold (favour silver above)", value=63.0, step=0.5)
 vol_osc_length = st.sidebar.number_input("Volatility Oscillator length", value=100, step=10)
 rsi_period = st.sidebar.number_input("RSI period", value=14, step=1)
+ema_fast = st.sidebar.number_input("Fast EMA", value=9, step=1)
+ema_slow = st.sidebar.number_input("Slow EMA", value=21, step=1)
 sma_fast = st.sidebar.number_input("Fast SMA", value=20, step=5)
 sma_slow = st.sidebar.number_input("Slow SMA", value=50, step=5)
 whale_vol_threshold = st.sidebar.number_input("Whale volume threshold (x avg)", value=2.0, step=0.5)
@@ -83,7 +85,13 @@ if selected_etcs:
         ep = etc_prices.get(ticker, {})
         price = ep.get("price", np.nan)
         curr = ep.get("currency", "GBp")
-        label = f"{curr} {price:,.2f}" if not np.isnan(price) else "N/A"
+        if not np.isnan(price):
+            if curr == "GBp":
+                label = f"\u00a3{price / 100:,.2f}"
+            else:
+                label = f"\u00a3{price:,.2f}"
+        else:
+            label = "N/A"
         etc_cols[i].metric(f"{ticker}", label, f"{ep.get('change_pct', 0):+.1f}%")
 
     with st.expander("Tracking Difference (Spot vs ETC)"):
@@ -156,6 +164,7 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
         # --- Score Legend ---
         with st.expander("Scoring Guide"):
             st.markdown(
+                "**Score Ranges**\n\n"
                 "| Score Range | Signal | Strength |\n"
                 "|---|---|---|\n"
                 "| **+0.40 to +1.00** | Strong Buy | Strong |\n"
@@ -164,9 +173,31 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
                 "| **-0.20 to -0.39** | Sell / Take Profit | Moderate |\n"
                 "| **-0.40 to -1.00** | Strong Sell | Strong |\n"
                 "\n"
-                "Each indicator votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
+                "Each of the 14 indicators votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
                 "multiplied by its weight. The composite score is the weighted sum divided by 100. "
-                "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range."
+                "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range.\n\n"
+                "**14 Indicators by Timeframe**\n\n"
+                "| # | Indicator | Timeframe | Weight | What it measures |\n"
+                "|---|-----------|-----------|--------|------------------|\n"
+                "| 1 | Fib Long-term (2yr) | Long | 5 | Major structural support/resistance |\n"
+                "| 2 | Fib Medium-term (3mo) | Medium | 9 | Current trend support/resistance |\n"
+                "| 3 | Fib Short-term (2-3wk) | Short | 7 | Entry timing levels |\n"
+                "| 4 | Volatility Oscillator | Short | 8 | Price acceleration breakouts |\n"
+                "| 5 | Boom Hunter Pro (BHS) | Short | 11 | COG-based trend/reversal (Ehlers) |\n"
+                "| 6 | EMA Crossover (9/21) | Short | 7 | Short-term trend direction |\n"
+                "| 7 | Hull Moving Average | Medium | 7 | Medium-term trend (low-lag) |\n"
+                "| 8 | Modified ATR | Long | 4 | Volatility regime (narrow=conviction) |\n"
+                "| 9 | Triangle Pattern | Medium | 6 | Chart pattern breakout detection |\n"
+                "| 10 | Bollinger Squeeze | Medium | 6 | Volatility compression/expansion |\n"
+                "| 11 | Momentum Bars (ROC) | Short | 8 | Rate of change direction/strength |\n"
+                "| 12 | Whale Volume | Short | 7 | Institutional accumulation (volume spikes) |\n"
+                "| 13 | RSI (14) | Medium | 9 | Overbought/oversold conditions |\n"
+                "| 14 | SMA Crossover (20/50) | Long | 6 | Structural trend direction |\n"
+                "| | **Total** | | **100** | |\n"
+                "\n"
+                "**Timeframe weights**: Short 48% | Medium 37% | Long 15%\n\n"
+                "**Correlation groups**: EMA/HMA/SMA (Trend MA), RSI/Momentum (Momentum), VO/Bollinger (Volatility). "
+                "Conflicts are flagged when correlated indicators disagree."
             )
 
         # --- Correlation Conflicts ---
@@ -213,6 +244,7 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
             chart_fib = fib.get(tf_key, {})
             render_metal_chart(
                 chart_df, chart_fib, metal, selected_tf,
+                ema_fast=ema_fast, ema_slow=ema_slow,
                 sma_fast=sma_fast, sma_slow=sma_slow, rsi_period=rsi_period,
                 chart_key=f"tv_{metal}_{tf_key}",
             )

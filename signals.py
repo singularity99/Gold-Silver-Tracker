@@ -3,7 +3,7 @@ import numpy as np
 from technicals import (
     multi_timeframe_fibonacci, vobhs_composite, detect_triangles,
     bollinger_squeeze, momentum_bars, whale_volume_detection,
-    rsi, sma_crossover, FIBONACCI_RATIOS,
+    rsi, sma_crossover, ema_crossover, FIBONACCI_RATIOS,
 )
 
 SIGNAL_STRONG_BUY = "Strong Buy"
@@ -18,26 +18,29 @@ STRENGTH_WEAK = "Weak"
 
 # Indicator definitions: (name, timeframe, weight, correlation_group)
 # Weights sum to 100. Tilted toward short/medium for weeks-to-months trading.
-# Short: 45%, Medium: 40%, Long: 15%
+# Short: 48%, Medium: 37%, Long: 15%
 INDICATORS = [
     ("Fib Long-term (2yr)",    "Long",   5,  "Price Levels"),
-    ("Fib Medium-term (3mo)",  "Medium", 10, "Price Levels"),
-    ("Fib Short-term (2-3wk)", "Short",  8,  "Price Levels"),
-    ("Volatility Oscillator",  "Short",  9,  "Volatility"),
-    ("Boom Hunter Pro (BHS)",  "Short",  12, "Trend (COG)"),
+    ("Fib Medium-term (3mo)",  "Medium", 9,  "Price Levels"),
+    ("Fib Short-term (2-3wk)", "Short",  7,  "Price Levels"),
+    ("Volatility Oscillator",  "Short",  8,  "Volatility"),
+    ("Boom Hunter Pro (BHS)",  "Short",  11, "Trend (COG)"),
+    ("EMA Crossover (9/21)",   "Short",  7,  "Trend (MA)"),
     ("Hull Moving Average",    "Medium", 7,  "Trend (MA)"),
     ("Modified ATR",           "Long",   4,  "Volatility"),
-    ("Triangle Pattern",       "Medium", 7,  "Pattern"),
+    ("Triangle Pattern",       "Medium", 6,  "Pattern"),
     ("Bollinger Squeeze",      "Medium", 6,  "Volatility"),
-    ("Momentum Bars (ROC)",    "Short",  9,  "Momentum"),
+    ("Momentum Bars (ROC)",    "Short",  8,  "Momentum"),
     ("Whale Volume",           "Short",  7,  "Volume"),
-    ("RSI (14)",               "Medium", 10, "Momentum"),
+    ("RSI (14)",               "Medium", 9,  "Momentum"),
     ("SMA Crossover (20/50)",  "Long",   6,  "Trend (MA)"),
 ]
 
 # Correlated pairs -- used for conflict detection
 CORRELATED_PAIRS = [
-    ("Hull Moving Average", "SMA Crossover (20/50)", "Trend (MA)"),
+    ("EMA Crossover (9/21)", "Hull Moving Average", "Trend (MA) short vs medium"),
+    ("Hull Moving Average", "SMA Crossover (20/50)", "Trend (MA) medium vs long"),
+    ("EMA Crossover (9/21)", "SMA Crossover (20/50)", "Trend (MA) short vs long"),
     ("RSI (14)", "Momentum Bars (ROC)", "Momentum"),
     ("Volatility Oscillator", "Bollinger Squeeze", "Volatility"),
 ]
@@ -207,7 +210,21 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
     else:
         votes["RSI (14)"] = (0, "Insufficient data")
 
-    # --- SMA Crossover ---
+    # --- EMA Crossover (9/21) -- short-term trend ---
+    ema_data = ema_crossover(df["Close"])
+    if not ema_data.empty:
+        if ema_data["cross_up"].iloc[-1]:
+            votes["EMA Crossover (9/21)"] = (1, "9 EMA just crossed above 21 EMA (fresh bullish crossover)")
+        elif ema_data["cross_down"].iloc[-1]:
+            votes["EMA Crossover (9/21)"] = (-1, "9 EMA just crossed below 21 EMA (fresh bearish crossover)")
+        elif ema_data["fast_above_slow"].iloc[-1]:
+            votes["EMA Crossover (9/21)"] = (1, "9 EMA above 21 EMA (short-term uptrend)")
+        else:
+            votes["EMA Crossover (9/21)"] = (-1, "9 EMA below 21 EMA (short-term downtrend)")
+    else:
+        votes["EMA Crossover (9/21)"] = (0, "Insufficient data")
+
+    # --- SMA Crossover (20/50) -- long-term trend ---
     sma_data = sma_crossover(df["Close"])
     if not sma_data.empty:
         if sma_data["fast_above_slow"].iloc[-1]:
@@ -291,7 +308,7 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
         "total_indicators": len(INDICATORS),
         "indicator_table": indicator_rows,
         "timeframe_scores": tf_normalized,
-        "timeframe_weights": {"Short": 45, "Medium": 40, "Long": 15},
+        "timeframe_weights": {"Short": 48, "Medium": 37, "Long": 15},
         "conflicts": conflicts,
     }
 

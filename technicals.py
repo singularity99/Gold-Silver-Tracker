@@ -321,6 +321,11 @@ def sma(series: pd.Series, period: int) -> pd.Series:
     return series.rolling(period).mean()
 
 
+def ema(series: pd.Series, period: int) -> pd.Series:
+    """Exponential Moving Average."""
+    return series.ewm(span=period, adjust=False).mean()
+
+
 def sma_crossover(series: pd.Series, fast: int = 20, slow: int = 50) -> pd.DataFrame:
     """Detect SMA crossovers."""
     sma_fast = sma(series, fast)
@@ -333,4 +338,19 @@ def sma_crossover(series: pd.Series, fast: int = 20, slow: int = 50) -> pd.DataF
         "cross_up": cross_up,
         "cross_down": cross_down,
         "fast_above_slow": sma_fast > sma_slow,
+    }, index=series.index)
+
+
+def ema_crossover(series: pd.Series, fast: int = 9, slow: int = 21) -> pd.DataFrame:
+    """Detect EMA crossovers for short-term trend signals."""
+    ema_fast = ema(series, fast)
+    ema_slow = ema(series, slow)
+    cross_up = (ema_fast > ema_slow) & (ema_fast.shift(1) <= ema_slow.shift(1))
+    cross_down = (ema_fast < ema_slow) & (ema_fast.shift(1) >= ema_slow.shift(1))
+    return pd.DataFrame({
+        f"ema_{fast}": ema_fast,
+        f"ema_{slow}": ema_slow,
+        "cross_up": cross_up,
+        "cross_down": cross_down,
+        "fast_above_slow": ema_fast > ema_slow,
     }, index=series.index)
