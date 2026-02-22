@@ -356,15 +356,26 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
             tf_normalized[tf] = 0.0
 
     # Conflict detection: flag when correlated indicators disagree
+    CONFLICT_EXPLANATIONS = {
+        "Trend (MA) short vs medium": "Short-term trend has weakened but the medium-term swing is intact. Common during healthy pullbacks -- wait for the faster MA to re-align before acting.",
+        "Trend (MA) medium vs long": "Medium-term momentum diverges from the long-term structure. If medium is bearish, the broader trend may be turning -- watch for follow-through.",
+        "Trend (MA) short vs long": "Short-term and long-term trends disagree. Short-term noise vs structural direction -- prioritise the longer timeframe unless short-term persists.",
+        "Momentum": "RSI and ROC disagree. One sees overbought/oversold while the other sees trend strength. Check which is leading -- RSI often leads at extremes.",
+        "Volatility": "Volatility Oscillator and Bollinger Squeeze disagree. Compression may be building before a breakout that the oscillator hasn't caught yet.",
+    }
     conflicts = []
     for ind_a, ind_b, group in CORRELATED_PAIRS:
         vote_a = votes.get(ind_a, (0, ""))[0]
         vote_b = votes.get(ind_b, (0, ""))[0]
         if vote_a != 0 and vote_b != 0 and vote_a != vote_b:
-            conflicts.append(
+            explanation = CONFLICT_EXPLANATIONS.get(group, "")
+            msg = (
                 f"{group} conflict: {ind_a} is {'bullish' if vote_a > 0 else 'bearish'} "
                 f"but {ind_b} is {'bullish' if vote_b > 0 else 'bearish'}"
             )
+            if explanation:
+                msg += f" -- {explanation}"
+            conflicts.append(msg)
 
     # Round to 2dp so classification matches the displayed value
     composite = round(composite, 2)
