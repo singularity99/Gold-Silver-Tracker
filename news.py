@@ -52,22 +52,14 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-_SKIP_PHRASES = [
-    "cookie", "subscribe", "sign up", "newsletter", "javascript",
-    "read more", "advertisement", "copyright", "all rights",
-    "privacy policy", "terms of use", "terms of service", "log in",
-    "create account", "download the", "download our", "get the app",
-    "mutual fund", "calculator", "catch all the", "also read",
-    "related article", "recommended for you", "trending now",
-    "share this", "follow us", "join our", "breaking news alert",
-    "file photo", "representational image", "getty images",
-    "skip to", "menu", "navigation", "breadcrumb", "sidebar",
-    "home /", "home/", "whatsapp", "telegram", "facebook", "twitter",
-    "summarize this", "ai analysis", "table of contents",
-    "mins read", "min read", "global market insights",
-    "updated:", "/ updated", "text size", "share aa",
-    "toi business", "timesofindia", "comments share",
-]
+_BOILERPLATE_RE = re.compile(
+    r"cookie|subscribe|sign.?up|newsletter|javascript|read more|"
+    r"advertis|copyright|\ball rights\b|privacy.?policy|terms of|"
+    r"log.?in|create.?account|download.?(the|our|app)|also read|"
+    r"related.?article|recommended|trending|share.?this|follow.?us|"
+    r"skip.?to|breadcrumb|sidebar|@font|font-face|@media|url\(",
+    re.IGNORECASE,
+)
 
 
 def fetch_catalyst_news(max_articles: int = 20) -> list[dict]:
@@ -149,9 +141,16 @@ def _resolve_and_summarize(article: dict) -> tuple[str, str]:
     if "news.google.com" in real_url:
         return real_url, ""
     summary = _fetch_and_extract(real_url)
-    # If extraction grabbed irrelevant content, discard it
-    if summary and title and not _has_topic_overlap(summary, title):
-        summary = ""
+    if summary:
+        # Strip leading non-prose junk (bylines, metadata) before first real sentence
+        match = re.search(r'(?<![A-Z])[.!?]\s+([A-Z][a-z])', summary)
+        if match and match.start() < 150:
+            candidate = summary[match.start() + 2:].strip()
+            if _has_topic_overlap(candidate, title) and len(candidate) > 100:
+                summary = candidate
+        # Discard if content is irrelevant to the article
+        if title and not _has_topic_overlap(summary, title):
+            summary = ""
     return real_url, summary
 
 
@@ -198,76 +197,93 @@ def _strip_tags(text: str) -> str:
     return text
 
 
-def _is_article_text(text: str) -> bool:
-    """Check if text looks like actual article content, not boilerplate."""
-    low = text.lower()
-    if any(skip in low for skip in _SKIP_PHRASES):
-        return False
+def _prose_score(text: str) -> float:
+    """Score how likely a text block is real article prose (0-1). Generic heuristic."""
     if len(text) < 80:
-        return False
-    # Must contain a proper sentence ending (lowercase letter followed by period)
-    if not re.search(r'[a-z][.!]\s', text + " ") and not re.search(r'[a-z][.]$', text):
-        return False
-    # Reject CSS, JS, encoded content, language menus, or non-Latin nav
-    if re.search(r'(font-face|@media|url\(|\.com/s/|src:|{|}|;|Edition\s+IN|ePaper|Sign\s+In\s+TOI)', text):
-        return False
-    # Reject if contains non-Latin scripts (language selectors)
-    if re.search(r'[\u0900-\u0DFF\u0E00-\u0EFF]', text):
-        return False
-    # Must have enough real words
+        return 0.0
+    # Boilerplate patterns
+    if _BOILERPLATE_RE.search(text):
+        return 0.0
+    # Must contain a proper sentence ending (lowercase/digit + period)
+    if not re.search(r'[a-z0-9][.!]\s', text + " ") and not re.search(r'[a-z0-9][.]$', text):
+        return 0.0
+    # Reject CSS/JS/code-like content
+    if re.search(r'[{};]', text):
+        return 0.0
+    # Reject non-Latin script blocks (language menus, translation nav)
+    latin_chars = len(re.findall(r'[a-zA-Z]', text))
+    total_alpha = len(re.findall(r'\w', text))
+    if total_alpha > 0 and latin_chars / total_alpha < 0.7:
+        return 0.0
     words = text.split()
-    if len(words) < 12:
-        return False
-    # Reject if too many capitalised words (likely headlines/nav)
+    if len(words) < 10:
+        return 0.0
+    score = 0.0
+    # Longer paragraphs score higher (news paragraphs are typically 20-80 words)
+    if 15 <= len(words) <= 100:
+        score += 0.3
+    elif len(words) > 10:
+        score += 0.1
+    # Sentences ending with periods (prose has these, nav/headlines don't)
+    sentences = re.findall(r'[A-Z][^.!?]*[.!?]', text)
+    if len(sentences) >= 1:
+        score += 0.3
+    # Average word length 3-8 (typical English prose)
+    avg_word_len = sum(len(w) for w in words) / len(words)
+    if 3.5 <= avg_word_len <= 8.0:
+        score += 0.2
+    # Low ratio of ALL-CAPS words (nav/headers have many)
     caps = sum(1 for w in words if w.isupper() and len(w) > 2)
-    if caps > len(words) * 0.5:
-        return False
-    return True
+    if caps / len(words) < 0.15:
+        score += 0.2
+    return score
 
 
 def _clean_html(html_text: str) -> str:
-    """Remove script, style, nav, header, footer, aside tags and their content."""
-    for tag in ("script", "style", "nav", "header", "footer", "aside", "noscript"):
-        html_text = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html_text, flags=re.DOTALL | re.IGNORECASE)
+    """Remove non-content tags."""
+    for tag in ("script", "style", "nav", "header", "footer", "aside",
+                "noscript", "svg", "form", "iframe", "figure"):
+        html_text = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html_text,
+                           flags=re.DOTALL | re.IGNORECASE)
+    # Remove HTML comments
+    html_text = re.sub(r"<!--.*?-->", "", html_text, flags=re.DOTALL)
     return html_text
 
 
 def _extract_paragraphs(html_text: str, count: int = 2) -> str:
-    """Extract first N meaningful article paragraphs from HTML."""
+    """Extract the best N article paragraphs from HTML using generic heuristics."""
     html_text = _clean_html(html_text)
 
-    # Try <article> first, then <main>, then full page
+    # Narrow scope: <article> > <main> > content div > full page
     article_html = html_text
-    for tag in ("article", "main", r'div[^>]*class="[^"]*(?:article|story|content|post)[^"]*"'):
-        match = re.search(rf"<{tag}[^>]*>(.*?)</{tag.split('[')[0]}>", html_text, re.DOTALL | re.IGNORECASE)
-        if match and len(match.group(1)) > 200:
+    for tag in ("article", "main"):
+        match = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", html_text,
+                          re.DOTALL | re.IGNORECASE)
+        if match and len(match.group(1)) > 300:
             article_html = match.group(1)
             break
 
-    # Extract <p> from narrowed scope
-    paras = re.findall(r"<p[^>]*>(.*?)</p>", article_html, re.DOTALL | re.IGNORECASE)
-    clean = []
+    # Score all <p> tags and pick the best consecutive run
+    paras = re.findall(r"<p[^>]*>(.*?)</p>", article_html,
+                       re.DOTALL | re.IGNORECASE)
+    scored = []
     for p in paras:
         text = _strip_tags(p).strip()
-        if _is_article_text(text):
-            clean.append(text)
-            if len(clean) >= count:
-                return " ".join(clean)
+        sc = _prose_score(text)
+        if sc >= 0.5:
+            scored.append(text)
 
-    if clean:
-        return " ".join(clean)
+    if scored:
+        return " ".join(scored[:count])
 
-    # Fallback: sentence extraction from cleaned body
+    # Fallback: extract sentences from the cleaned plain text
     plain = _strip_tags(article_html)
-    # Reject if plain text has non-Latin scripts (nav/language menus leaked)
-    if re.search(r'[\u0900-\u0DFF\u0E00-\u0EFF]', plain[:2000]):
-        plain = re.sub(r'[\u0900-\u0DFF\u0E00-\u0EFF]+', ' ', plain)
     sentences = re.split(r'(?<=[.!?])\s+', plain)
     result = []
     char_count = 0
     for s in sentences:
         s = s.strip()
-        if _is_article_text(s):
+        if _prose_score(s) >= 0.4:
             result.append(s)
             char_count += len(s)
             if char_count >= 300:
