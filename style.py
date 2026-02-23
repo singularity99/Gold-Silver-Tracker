@@ -344,7 +344,7 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
 .ticker-change {{ font-size:0.7rem; font-family:'JetBrains Mono',monospace; margin-top:1px; }}
 .ticker-change.up {{ color:{GREEN}; }} .ticker-change.down {{ color:{RED}; }} .ticker-change.neutral {{ color:{TEXT_MUTED}; }}
 .ticker-gold .ticker-price {{ color:{GOLD}; }} .ticker-silver .ticker-price {{ color:{SILVER}; }}
-.ticker-metal-label {{ font-size:0.7rem; font-weight:700; padding:8px 10px; display:flex; align-items:center; border-right:1px solid {BORDER}; min-width:50px; justify-content:center; }}
+.ticker-metal-label {{ font-size:1.4rem; font-weight:800; padding:8px 14px; display:flex; align-items:center; border-right:1px solid {BORDER}; min-width:70px; justify-content:center; letter-spacing:1px; }}
 .ticker-metal-label.gold {{ color:{GOLD}; }} .ticker-metal-label.silver {{ color:{SILVER}; }}
 @media (max-width: 768px) {{
     .ticker-grid {{ flex-direction:column; }}
@@ -449,10 +449,12 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
     gold_row += _item("ticker-gold", "USD/toz",
                        f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A",
                        f"{gold_chg:+.1f}%", _chg_class(gold_chg))
+    gold_chg_str = f"{gold_chg:+.1f}%" if gold_chg == gold_chg else ""
+    gold_chg_cls = _chg_class(gold_chg)
     if gold_gbp and gold_gbp == gold_gbp:
-        gold_row += _item("ticker-gold", "GBP/toz", f"\u00a3{gold_gbp:,.0f}")
+        gold_row += _item("ticker-gold", "GBP/toz", f"\u00a3{gold_gbp:,.0f}", gold_chg_str, gold_chg_cls)
     if gold_inr and gold_inr == gold_inr:
-        gold_row += _item("ticker-gold", "INR/kg", _inr_fmt(gold_inr))
+        gold_row += _item("ticker-gold", "INR/kg", _inr_fmt(gold_inr), gold_chg_str, gold_chg_cls)
     gold_row += '</div>'
 
     # Silver row
@@ -461,10 +463,12 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
     silver_row += _item("ticker-silver", "USD/toz",
                          f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A",
                          f"{silver_chg:+.1f}%", _chg_class(silver_chg))
+    silver_chg_str = f"{silver_chg:+.1f}%" if silver_chg == silver_chg else ""
+    silver_chg_cls = _chg_class(silver_chg)
     if silver_gbp and silver_gbp == silver_gbp:
-        silver_row += _item("ticker-silver", "GBP/toz", f"\u00a3{silver_gbp:.2f}")
+        silver_row += _item("ticker-silver", "GBP/toz", f"\u00a3{silver_gbp:.2f}", silver_chg_str, silver_chg_cls)
     if silver_inr and silver_inr == silver_inr:
-        silver_row += _item("ticker-silver", "INR/kg", _inr_fmt(silver_inr))
+        silver_row += _item("ticker-silver", "INR/kg", _inr_fmt(silver_inr), silver_chg_str, silver_chg_cls)
     silver_row += '</div>'
 
     # Right section: ratios & FX
