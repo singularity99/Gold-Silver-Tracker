@@ -13,7 +13,7 @@ from technicals import (
     bollinger_squeeze, momentum_bars, whale_volume_detection,
     rsi, sma_crossover, fibonacci_levels,
 )
-from signals import score_metal, allocation_recommendation
+from signals import score_metal, allocation_recommendation, INDICATORS, _rescale_indicators
 from charts import render_metal_chart
 from portfolio import (
     get_portfolio, set_total_pot, add_purchase, delete_purchase, get_summary,
@@ -169,29 +169,41 @@ with tab_dashboard:
             "Each of the 14 indicators votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
             "multiplied by its weight. The composite score is the weighted sum divided by 100. "
             "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range.\n\n"
-            "**14 Indicators by Timeframe**\n\n"
-            "| # | Indicator | Timeframe | Weight | What it measures |\n"
-            "|---|-----------|-----------|--------|------------------|\n"
-            "| 1 | Fib Long-term (2yr) | Long | 5 | Major structural support/resistance |\n"
-            "| 2 | Fib Medium-term (3mo) | Medium | 9 | Current trend support/resistance |\n"
-            "| 3 | Fib Short-term (2-3wk) | Short | 7 | Entry timing levels |\n"
-            "| 4 | Volatility Oscillator | Short | 8 | Price acceleration breakouts |\n"
-            "| 5 | Boom Hunter Pro (BHS) | Short | 11 | COG-based trend/reversal (Ehlers) |\n"
-            "| 6 | EMA Crossover (9/21) | Short | 7 | Short-term trend direction |\n"
-            "| 7 | Hull Moving Average | Medium | 7 | Medium-term trend (low-lag) |\n"
-            "| 8 | Modified ATR | Long | 4 | Volatility regime (narrow=conviction) |\n"
-            "| 9 | Triangle Pattern | Medium | 6 | Chart pattern breakout detection |\n"
-            "| 10 | Bollinger Squeeze | Medium | 6 | Volatility compression/expansion |\n"
-            "| 11 | Momentum Bars (ROC) | Short | 8 | Rate of change direction/strength |\n"
-            "| 12 | Whale Volume | Short | 7 | Institutional accumulation (volume spikes) |\n"
-            "| 13 | RSI (14) | Medium | 9 | Overbought/oversold conditions |\n"
-            "| 14 | SMA Crossover (20/50) | Long | 6 | Structural trend direction |\n"
-            "| | **Total** | | **100** | |\n"
-            "\n"
-            "**Timeframe weights**: Short 48% | Medium 37% | Long 15%\n\n"
+        )
+        # Dynamic indicator table based on current weight config
+        rescaled = _rescale_indicators(tf_weight_config)
+        indicator_desc = {
+            "Fib Long-term (2yr)": "Major structural support/resistance",
+            "Fib Medium-term (3mo)": "Current trend support/resistance",
+            "Fib Short-term (2-3wk)": "Entry timing levels",
+            "Volatility Oscillator": "Price acceleration breakouts",
+            "Boom Hunter Pro (BHS)": "COG-based trend/reversal (Ehlers)",
+            "EMA Crossover (9/21)": "Short-term trend direction",
+            "Hull Moving Average": "Medium-term trend (low-lag)",
+            "Modified ATR": "Volatility regime (narrow=conviction)",
+            "Triangle Pattern": "Chart pattern breakout detection",
+            "Bollinger Squeeze": "Volatility compression/expansion",
+            "Momentum Bars (ROC)": "Rate of change direction/strength",
+            "Whale Volume": "Institutional accumulation (volume spikes)",
+            "RSI (14)": "Overbought/oversold conditions",
+            "SMA Crossover (20/50)": "Structural trend direction",
+        }
+        table = f"**{len(rescaled)} Indicators by Timeframe** (weights reflect current config)\n\n"
+        table += "| # | Indicator | Timeframe | Base | Scaled | What it measures |\n"
+        table += "|---|-----------|-----------|------|--------|------------------|\n"
+        total_scaled = 0
+        for i, (name, tf, weight, _) in enumerate(rescaled, 1):
+            base = next(w for n, _, w, _ in INDICATORS if n == name)
+            total_scaled += weight
+            table += f"| {i} | {name} | {tf} | {base} | {weight:.1f} | {indicator_desc.get(name, '')} |\n"
+        table += f"| | **Total** | | **100** | **{total_scaled:.0f}** | |\n"
+        table += (
+            f"\n**Timeframe weights**: Short {tf_weight_config['Short']}% "
+            f"| Medium {tf_weight_config['Medium']}% | Long {tf_weight_config['Long']}%\n\n"
             "**Correlation groups**: EMA/HMA/SMA (Trend MA), RSI/Momentum (Momentum), VO/Bollinger (Volatility). "
             "Conflicts are flagged when correlated indicators disagree."
         )
+        st.markdown(table)
 
     # ── Conflicts (shown in indicator breakdown) ──
 
