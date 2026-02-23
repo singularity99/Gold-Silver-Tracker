@@ -192,20 +192,17 @@ with tab_dashboard:
 
     # ── Conflicts (shown in indicator breakdown) ──
 
-    # ── Market Analysis ──
+    # ── Market Analysis + Chat ──
     st.subheader("Market Analysis")
-    for metal_name, sc, price_key in [("gold", gold_score, "gold"), ("silver", silver_score, "silver")]:
-        if sc:
-            summary_text = generate_summary(metal_name, sc, spot[price_key]["price_usd"])
-            st.html(render_component(analysis_card_html(metal_name, summary_text)))
-
-    # ── Chat ──
     for metal_name, sc, fib_data, price_key in [
         ("gold", gold_score, gold_fib, "gold"),
         ("silver", silver_score, silver_fib, "silver"),
     ]:
         if not sc:
             continue
+        summary_text = generate_summary(metal_name, sc, spot[price_key]["price_usd"])
+        st.html(render_component(analysis_card_html(metal_name, summary_text)))
+        # Chat directly below the analysis card
         context = build_context_prompt(metal_name, sc, spot[price_key]["price_usd"], fib_data)
         if chat.is_chat_available():
             chat_key = f"chat_history_{metal_name}"
