@@ -107,6 +107,7 @@ ticker_html = ticker_strip_html(
     silver_gbp=spot["silver"]["price_gbp"],
     gold_inr=spot["gold"].get("price_inr_per_kg"),
     silver_inr=spot["silver"].get("price_inr_per_kg"),
+    usd_inr=spot.get("usd_inr"),
 )
 st.html(render_component(ticker_html))
 

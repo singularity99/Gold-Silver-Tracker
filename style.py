@@ -307,17 +307,6 @@ h1, h2, h3 {{
 
 /* ─── Mobile Responsive ─── */
 @media (max-width: 768px) {{
-    .ticker-strip {{
-        flex-wrap: nowrap;
-        overflow-x: auto;
-    }}
-    .ticker-item {{
-        min-width: 110px;
-        padding: 8px 10px;
-    }}
-    .ticker-price {{
-        font-size: 1rem;
-    }}
     .signal-card {{
         padding: 14px;
     }}
@@ -342,14 +331,28 @@ h1, h2, h3 {{
 COMPONENT_CSS = f"""
 <style>
 body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -apple-system, sans-serif; color: {TEXT_PRIMARY}; }}
-.ticker-strip {{ display:flex; gap:0; background:linear-gradient(180deg,#1E2128 0%,{BG_CARD} 100%); border:1px solid {BORDER}; border-radius:6px; padding:0; overflow-x:auto; -webkit-overflow-scrolling:touch; }}
-.ticker-item {{ flex:1; min-width:140px; padding:10px 16px; border-right:1px solid {BORDER}; text-align:center; }}
+.ticker-grid {{ display:flex; gap:0; background:linear-gradient(180deg,#1E2128 0%,{BG_CARD} 100%); border:1px solid {BORDER}; border-radius:6px; overflow:hidden; }}
+.ticker-left {{ flex:1; min-width:0; }}
+.ticker-right {{ border-left:2px solid {BORDER}; display:flex; flex-direction:column; }}
+.ticker-row {{ display:flex; gap:0; }}
+.ticker-row + .ticker-row {{ border-top:1px solid {BORDER}; }}
+.ticker-right .ticker-row {{ flex:1; }}
+.ticker-item {{ flex:1; min-width:100px; padding:8px 14px; border-right:1px solid {BORDER}; text-align:center; }}
 .ticker-item:last-child {{ border-right:none; }}
-.ticker-label {{ font-size:0.7rem; color:{TEXT_SECONDARY}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; }}
-.ticker-price {{ font-size:1.3rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:{TEXT_PRIMARY}; }}
-.ticker-change {{ font-size:0.75rem; font-family:'JetBrains Mono',monospace; margin-top:1px; }}
+.ticker-label {{ font-size:0.65rem; color:{TEXT_SECONDARY}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:1px; }}
+.ticker-price {{ font-size:1.2rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:{TEXT_PRIMARY}; }}
+.ticker-change {{ font-size:0.7rem; font-family:'JetBrains Mono',monospace; margin-top:1px; }}
 .ticker-change.up {{ color:{GREEN}; }} .ticker-change.down {{ color:{RED}; }} .ticker-change.neutral {{ color:{TEXT_MUTED}; }}
 .ticker-gold .ticker-price {{ color:{GOLD}; }} .ticker-silver .ticker-price {{ color:{SILVER}; }}
+.ticker-metal-label {{ font-size:0.7rem; font-weight:700; padding:8px 10px; display:flex; align-items:center; border-right:1px solid {BORDER}; min-width:50px; justify-content:center; }}
+.ticker-metal-label.gold {{ color:{GOLD}; }} .ticker-metal-label.silver {{ color:{SILVER}; }}
+@media (max-width: 768px) {{
+    .ticker-grid {{ flex-direction:column; }}
+    .ticker-right {{ flex-direction:row; border-left:none; border-top:1px solid {BORDER}; }}
+    .ticker-row {{ flex-wrap:wrap; }}
+    .ticker-item {{ min-width:80px; padding:6px 8px; }}
+    .ticker-price {{ font-size:1rem; }}
+}}
 
 .signal-card {{ background:{BG_CARD}; border:1px solid {BORDER}; border-radius:8px; padding:20px; position:relative; overflow:hidden; }}
 .signal-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:3px; }}
@@ -400,9 +403,6 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
 .cards-row > div {{ flex:1; min-width:300px; }}
 
 @media (max-width: 768px) {{
-    .ticker-strip {{ flex-wrap:nowrap; }}
-    .ticker-item {{ min-width:110px; padding:8px 10px; }}
-    .ticker-price {{ font-size:1rem; }}
     .score-big {{ font-size:2rem; }}
     .sub-scores {{ flex-direction:column; }}
     .etc-grid, .cards-row {{ flex-direction:column; }}
@@ -420,52 +420,71 @@ def render_component(html_content: str, height: int = None) -> str:
 
 def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
                       gs_ratio, gbp_usd, gold_gbp=None, silver_gbp=None,
-                      gold_inr=None, silver_inr=None) -> str:
+                      gold_inr=None, silver_inr=None, usd_inr=None) -> str:
     def _chg_class(val):
         if val > 0: return "up"
         if val < 0: return "down"
         return "neutral"
 
-    def _inr_fmt(val, unit):
-        """Format INR price with appropriate scaling."""
+    def _inr_fmt(val):
         if val and val == val:
             if val >= 1e7:
-                return f"\u20b9{val / 1e7:.2f} Cr/{unit}"
+                return f"\u20b9{val / 1e7:.2f} Cr/kg"
             elif val >= 1e5:
-                return f"\u20b9{val / 1e5:.2f} L/{unit}"
+                return f"\u20b9{val / 1e5:.2f} L/kg"
             else:
-                return f"\u20b9{val:,.0f}/{unit}"
+                return f"\u20b9{val:,.0f}/kg"
         return "N/A"
 
-    items = [
-        ("ticker-gold", "Gold USD/toz",
-         f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A",
-         f"{gold_chg:+.1f}%", _chg_class(gold_chg)),
-        ("ticker-silver", "Silver USD/toz",
-         f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A",
-         f"{silver_chg:+.1f}%", _chg_class(silver_chg)),
-    ]
-    if gold_gbp and gold_gbp == gold_gbp:
-        items.append(("ticker-gold", "Gold GBP/toz", f"\u00a3{gold_gbp:,.0f}", "", "neutral"))
-    if silver_gbp and silver_gbp == silver_gbp:
-        items.append(("ticker-silver", "Silver GBP/toz", f"\u00a3{silver_gbp:.2f}", "", "neutral"))
-    if gold_inr and gold_inr == gold_inr:
-        items.append(("ticker-gold", "Gold INR", _inr_fmt(gold_inr, "kg"), "", "neutral"))
-    if silver_inr and silver_inr == silver_inr:
-        items.append(("ticker-silver", "Silver INR", _inr_fmt(silver_inr, "kg"), "", "neutral"))
-    items.append(("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A", "", "neutral"))
-    items.append(("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A", "", "neutral"))
-
-    html = '<div class="ticker-strip">'
-    for cls, label, price, change, chg_cls in items:
-        html += f"""
-        <div class="ticker-item {cls}">
+    def _item(cls, label, price, change="", chg_cls="neutral"):
+        return f"""<div class="ticker-item {cls}">
             <div class="ticker-label">{label}</div>
             <div class="ticker-price">{price}</div>
             <div class="ticker-change {chg_cls}">{change}</div>
         </div>"""
-    html += '</div>'
-    return html
+
+    # Gold row
+    gold_row = '<div class="ticker-row">'
+    gold_row += f'<div class="ticker-metal-label gold">GOLD</div>'
+    gold_row += _item("ticker-gold", "USD/toz",
+                       f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A",
+                       f"{gold_chg:+.1f}%", _chg_class(gold_chg))
+    if gold_gbp and gold_gbp == gold_gbp:
+        gold_row += _item("ticker-gold", "GBP/toz", f"\u00a3{gold_gbp:,.0f}")
+    if gold_inr and gold_inr == gold_inr:
+        gold_row += _item("ticker-gold", "INR/kg", _inr_fmt(gold_inr))
+    gold_row += '</div>'
+
+    # Silver row
+    silver_row = '<div class="ticker-row">'
+    silver_row += f'<div class="ticker-metal-label silver">SILVER</div>'
+    silver_row += _item("ticker-silver", "USD/toz",
+                         f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A",
+                         f"{silver_chg:+.1f}%", _chg_class(silver_chg))
+    if silver_gbp and silver_gbp == silver_gbp:
+        silver_row += _item("ticker-silver", "GBP/toz", f"\u00a3{silver_gbp:.2f}")
+    if silver_inr and silver_inr == silver_inr:
+        silver_row += _item("ticker-silver", "INR/kg", _inr_fmt(silver_inr))
+    silver_row += '</div>'
+
+    # Right section: ratios & FX
+    usd_inr_val = usd_inr if usd_inr and usd_inr == usd_inr else None
+    gbp_inr_val = (gbp_usd * usd_inr) if usd_inr_val and gbp_usd == gbp_usd else None
+
+    right_top = '<div class="ticker-row">'
+    right_top += _item("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A")
+    right_top += _item("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A")
+    right_top += '</div>'
+
+    right_bot = '<div class="ticker-row">'
+    right_bot += _item("", "USD/INR", f"\u20b9{usd_inr_val:.2f}" if usd_inr_val else "N/A")
+    right_bot += _item("", "GBP/INR", f"\u20b9{gbp_inr_val:.2f}" if gbp_inr_val else "N/A")
+    right_bot += '</div>'
+
+    return f"""<div class="ticker-grid">
+        <div class="ticker-left">{gold_row}{silver_row}</div>
+        <div class="ticker-right">{right_top}{right_bot}</div>
+    </div>"""
 
 
 def signal_card_html(metal, score, price_usd) -> str:
