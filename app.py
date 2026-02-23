@@ -44,6 +44,11 @@ st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 st.sidebar.title("Settings")
 
 available_etcs = list(DEFAULT_ETC_TICKERS.keys())
+WEIGHT_PRESETS = {
+    "Short-bias": {"Short": 60, "Medium": 30, "Long": 10},
+    "Balanced": {"Short": 34, "Medium": 33, "Long": 33},
+    "Long-bias": {"Short": 20, "Medium": 30, "Long": 50},
+}
 
 
 def _normalise_weights(weights: dict | None) -> dict:
@@ -84,6 +89,7 @@ def _normalise_config(config: dict | None) -> dict:
         "sma_slow": max(1, int(cfg.get("sma_slow", 50))),
         "whale_vol_threshold": max(0.1, float(cfg.get("whale_vol_threshold", 2.0))),
         "tf_weights": _normalise_weights(cfg.get("tf_weights", DEFAULT_TF_WEIGHTS)),
+        "profiles": cfg.get("profiles", {}) if isinstance(cfg.get("profiles", {}), dict) else {},
     }
 
 
@@ -107,6 +113,7 @@ def _set_state_from_config(config: dict):
     st.session_state["sma_fast"] = cfg["sma_fast"]
     st.session_state["sma_slow"] = cfg["sma_slow"]
     st.session_state["whale_vol_threshold"] = cfg["whale_vol_threshold"]
+    st.session_state["profiles"] = cfg.get("profiles", {})
 
     w = cfg["tf_weights"]
     st.session_state["w_short"] = w["Short"]
@@ -134,6 +141,7 @@ def _state_config() -> dict:
         "sma_slow": st.session_state.get("sma_slow", 50),
         "whale_vol_threshold": st.session_state.get("whale_vol_threshold", 2.0),
         "tf_weights": _state_weights() if all(k in st.session_state for k in ("w_short", "w_medium", "w_long")) else DEFAULT_TF_WEIGHTS,
+        "profiles": st.session_state.get("profiles", {}),
     })
 
 
@@ -190,6 +198,51 @@ def _rebalance(changed_key):
     _persist_config()
 
 
+def _apply_weight_preset(name: str):
+    preset = WEIGHT_PRESETS.get(name)
+    if not preset:
+        return
+    st.session_state["w_short"] = preset["Short"]
+    st.session_state["w_medium"] = preset["Medium"]
+    st.session_state["w_long"] = preset["Long"]
+    _persist_config()
+
+
+def _active_profile_payload() -> dict:
+    cfg = _state_config()
+    return {k: v for k, v in cfg.items() if k != "profiles"}
+
+
+def _save_profile():
+    name = st.session_state.get("profile_name_input", "").strip()
+    if not name:
+        return
+    profiles = dict(st.session_state.get("profiles", {}))
+    profiles[name] = _active_profile_payload()
+    st.session_state["profiles"] = profiles
+    set_config({"profiles": profiles})
+
+
+def _apply_selected_profile():
+    name = st.session_state.get("profile_select", "")
+    profile = st.session_state.get("profiles", {}).get(name)
+    if not isinstance(profile, dict):
+        return
+    merged = dict(profile)
+    merged["profiles"] = st.session_state.get("profiles", {})
+    _set_state_from_config(merged)
+    _persist_config()
+
+
+def _delete_selected_profile():
+    name = st.session_state.get("profile_select", "")
+    profiles = dict(st.session_state.get("profiles", {}))
+    if name in profiles:
+        profiles.pop(name)
+        st.session_state["profiles"] = profiles
+        set_config({"profiles": profiles})
+
+
 _sync_from_shared_store(force=False)
 _watch_shared_config_updates()
 
@@ -227,6 +280,28 @@ st.sidebar.subheader("Timeframe Weights")
 st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
 st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
 st.sidebar.slider("Long-term %", 0, 100, key="w_long", on_change=_rebalance, args=("w_long",))
+st.sidebar.caption("Weight presets")
+preset_cols = st.sidebar.columns(3)
+for i, preset_name in enumerate(WEIGHT_PRESETS.keys()):
+    if preset_cols[i].button(preset_name, key=f"preset_{preset_name}"):
+        _apply_weight_preset(preset_name)
+        st.rerun()
+
+st.sidebar.subheader("Saved Profiles")
+profile_names = sorted(st.session_state.get("profiles", {}).keys())
+st.sidebar.selectbox("Choose profile", [""] + profile_names, key="profile_select")
+profile_cols = st.sidebar.columns(2)
+if profile_cols[0].button("Apply Profile"):
+    _apply_selected_profile()
+    st.rerun()
+if profile_cols[1].button("Delete Profile"):
+    _delete_selected_profile()
+    st.rerun()
+st.sidebar.text_input("Save current settings as", key="profile_name_input")
+if st.sidebar.button("Save Profile"):
+    _save_profile()
+    st.rerun()
+
 if st.sidebar.button("Pull latest shared settings"):
     _sync_from_shared_store(force=True)
     st.rerun()
@@ -303,6 +378,19 @@ with tab_dashboard:
 
         gold_score = score_metal(gold_daily, gold_fib, spot["gold"]["price_usd"], tf_weight_config) if not gold_daily.empty else None
         silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"], tf_weight_config) if not silver_daily.empty else None
+
+    alerts = []
+    for metal_name, score_obj in (("gold", gold_score), ("silver", silver_score)):
+        if not score_obj:
+            continue
+        signal = score_obj.get("signal", "Neutral")
+        state_key = f"signal_regime_{metal_name}"
+        prev_signal = st.session_state.get(state_key)
+        if prev_signal is not None and prev_signal != signal:
+            alerts.append(f"**{metal_name.title()}**: {prev_signal} → {signal}")
+        st.session_state[state_key] = signal
+    if alerts:
+        st.warning("Signal regime change detected\n\n" + "\n".join(f"- {x}" for x in alerts))
 
     # ── Signal Cards ──
     cards_html = '<div class="cards-row">'

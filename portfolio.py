@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
     "sma_slow": 50,
     "whale_vol_threshold": 2.0,
     "tf_weights": deepcopy(DEFAULT_TF_WEIGHTS),
+    "profiles": {},
 }
 DEFAULT_DATA = {
     "total_pot": 2_000_000,
@@ -70,6 +71,14 @@ def _normalise_config(config: dict | None) -> dict:
                     pass
 
         merged["tf_weights"] = _normalise_tf_weights(config.get("tf_weights"))
+        profiles = config.get("profiles")
+        if isinstance(profiles, dict):
+            cleaned_profiles = {}
+            for name, profile_cfg in profiles.items():
+                if not str(name).strip() or not isinstance(profile_cfg, dict):
+                    continue
+                cleaned_profiles[str(name).strip()] = _normalise_config({**profile_cfg, "profiles": {}})
+            merged["profiles"] = cleaned_profiles
     else:
         merged["tf_weights"] = _normalise_tf_weights(None)
     return merged
@@ -95,6 +104,13 @@ def _merge_config(base: dict, updates: dict) -> dict:
                 pass
     if "tf_weights" in updates:
         merged["tf_weights"] = _normalise_tf_weights(updates.get("tf_weights"))
+    if "profiles" in updates and isinstance(updates["profiles"], dict):
+        cleaned_profiles = {}
+        for name, profile_cfg in updates["profiles"].items():
+            if not str(name).strip() or not isinstance(profile_cfg, dict):
+                continue
+            cleaned_profiles[str(name).strip()] = _normalise_config({**profile_cfg, "profiles": {}})
+        merged["profiles"] = cleaned_profiles
     return _normalise_config(merged)
 
 

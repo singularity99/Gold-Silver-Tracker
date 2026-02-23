@@ -21,6 +21,39 @@ _DARK_GRID = {
 }
 
 
+def _timescale_preset(timeframe_label: str, is_intraday: bool) -> dict:
+    label = (timeframe_label or "").lower()
+    if "4 week" in label:
+        return {
+            "borderColor": "rgba(197, 203, 206, 0.4)",
+            "timeVisible": True,
+            "secondsVisible": False,
+            "rightOffset": 2,
+            "barSpacing": 8,
+            "minBarSpacing": 4,
+            "rightBarStaysOnScroll": True,
+        }
+    if "3 month" in label:
+        return {
+            "borderColor": "rgba(197, 203, 206, 0.4)",
+            "timeVisible": False,
+            "secondsVisible": False,
+            "rightOffset": 3,
+            "barSpacing": 6,
+            "minBarSpacing": 3,
+            "rightBarStaysOnScroll": True,
+        }
+    return {
+        "borderColor": "rgba(197, 203, 206, 0.4)",
+        "timeVisible": is_intraday,
+        "secondsVisible": False,
+        "rightOffset": 4,
+        "barSpacing": 5,
+        "minBarSpacing": 2,
+        "rightBarStaysOnScroll": True,
+    }
+
+
 def _df_to_candles(df: pd.DataFrame) -> list[dict]:
     """Convert OHLCV dataframe to lightweight-charts candlestick format."""
     out = df[["Open", "High", "Low", "Close"]].copy()
@@ -176,16 +209,14 @@ def render_metal_chart(df: pd.DataFrame, fib_levels: dict, metal: str,
             "options": {"color": "rgba(100,149,237,0.4)", "lineWidth": 1, "lineStyle": 2},
         })
 
+    scale_preset = _timescale_preset(timeframe_label, is_intraday)
+
     price_chart = {
         "height": 450,
         "layout": _DARK_LAYOUT,
         "grid": _DARK_GRID,
-        "crosshair": {"mode": 0},
-        "timeScale": {
-            "borderColor": "rgba(197, 203, 206, 0.4)",
-            "timeVisible": is_intraday,
-            "secondsVisible": False,
-        },
+        "crosshair": {"mode": 1},
+        "timeScale": scale_preset,
         "watermark": {
             "visible": True, "fontSize": 36,
             "horzAlign": "center", "vertAlign": "center",
@@ -302,8 +333,7 @@ def render_metal_chart(df: pd.DataFrame, fib_levels: dict, metal: str,
             "height": 130,
             "layout": _DARK_LAYOUT,
             "grid": _DARK_GRID,
-            "timeScale": {"visible": True, "borderColor": "rgba(197,203,206,0.4)",
-                          "timeVisible": is_intraday, "secondsVisible": False},
+            "timeScale": {"visible": True, **scale_preset},
             "watermark": {"visible": True, "fontSize": 16, "horzAlign": "left", "vertAlign": "top",
                            "color": "rgba(171,71,188,0.5)", "text": "Momentum (ROC)"},
         }
