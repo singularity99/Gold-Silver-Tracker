@@ -438,17 +438,17 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
         return "N/A"
 
     items = [
-        ("ticker-gold", "Gold Spot",
+        ("ticker-gold", "Gold USD/toz",
          f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A",
          f"{gold_chg:+.1f}%", _chg_class(gold_chg)),
-        ("ticker-silver", "Silver Spot",
+        ("ticker-silver", "Silver USD/toz",
          f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A",
          f"{silver_chg:+.1f}%", _chg_class(silver_chg)),
     ]
     if gold_gbp and gold_gbp == gold_gbp:
-        items.append(("ticker-gold", "Gold GBP", f"\u00a3{gold_gbp:,.0f}", "", "neutral"))
+        items.append(("ticker-gold", "Gold GBP/toz", f"\u00a3{gold_gbp:,.0f}", "", "neutral"))
     if silver_gbp and silver_gbp == silver_gbp:
-        items.append(("ticker-silver", "Silver GBP", f"\u00a3{silver_gbp:.2f}", "", "neutral"))
+        items.append(("ticker-silver", "Silver GBP/toz", f"\u00a3{silver_gbp:.2f}", "", "neutral"))
     if gold_inr and gold_inr == gold_inr:
         items.append(("ticker-gold", "Gold INR", _inr_fmt(gold_inr, "kg"), "", "neutral"))
     if silver_inr and silver_inr == silver_inr:
