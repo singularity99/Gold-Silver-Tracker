@@ -34,7 +34,7 @@ st.set_page_config(
     page_title="Gold & Silver Strategy Monitor",
     page_icon="🥇",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # Inject global CSS
@@ -79,12 +79,53 @@ def _rebalance(changed_key):
     else:
         for i, k in enumerate(others):
             st.session_state[k] = remaining // len(others) + (1 if i < remaining % len(others) else 0)
-    # Persist
+    set_tf_weights({"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long})
+    if "m_w_short" in st.session_state:
+        _sync_mobile_weight_sliders()
+
+
+def _sync_mobile_weight_sliders():
+    st.session_state["m_w_short"] = st.session_state.w_short
+    st.session_state["m_w_medium"] = st.session_state.w_medium
+    st.session_state["m_w_long"] = st.session_state.w_long
+
+
+def _rebalance_mobile(changed_key):
+    keys = ["m_w_short", "m_w_medium", "m_w_long"]
+    others = [k for k in keys if k != changed_key]
+    new_val = st.session_state[changed_key]
+    remaining = 100 - new_val
+    other_sum = sum(st.session_state[k] for k in others)
+    if other_sum > 0:
+        for k in others:
+            st.session_state[k] = max(0, round(st.session_state[k] / other_sum * remaining))
+        diff = 100 - new_val - sum(st.session_state[k] for k in others)
+        if diff != 0:
+            st.session_state[others[0]] += diff
+    else:
+        for i, k in enumerate(others):
+            st.session_state[k] = remaining // len(others) + (1 if i < remaining % len(others) else 0)
+
+    st.session_state.w_short = st.session_state.m_w_short
+    st.session_state.w_medium = st.session_state.m_w_medium
+    st.session_state.w_long = st.session_state.m_w_long
     set_tf_weights({"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long})
 
 st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
 st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
 st.sidebar.slider("Long-term %", 0, 100, key="w_long", on_change=_rebalance, args=("w_long",))
+
+if "m_w_short" not in st.session_state:
+    _sync_mobile_weight_sliders()
+with st.expander("Quick Settings (Mobile)"):
+    st.caption("Use these sliders if the sidebar toggle is not visible on your phone.")
+    st.slider("Short-term %", 0, 100, key="m_w_short", on_change=_rebalance_mobile, args=("m_w_short",))
+    st.slider("Medium-term %", 0, 100, key="m_w_medium", on_change=_rebalance_mobile, args=("m_w_medium",))
+    st.slider("Long-term %", 0, 100, key="m_w_long", on_change=_rebalance_mobile, args=("m_w_long",))
+    if st.button("Sync from sidebar values"):
+        _sync_mobile_weight_sliders()
+        st.rerun()
+
 tf_weight_config = {"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long}
 
 st.sidebar.subheader("Portfolio")
