@@ -11,3 +11,4 @@ env/
 .env
 portfolio_data.json
 .DS_Store
+.streamlit/secrets.toml
