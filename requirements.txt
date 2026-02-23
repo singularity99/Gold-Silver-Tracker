@@ -8,3 +8,4 @@ ta>=0.11.0
 scipy>=1.11.0
 streamlit-lightweight-charts>=0.7.20
 googlenewsdecoder>=0.1.7
+groq>=0.4.0

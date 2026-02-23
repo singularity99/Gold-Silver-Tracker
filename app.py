@@ -20,6 +20,8 @@ from portfolio import (
     export_portfolio_json, import_portfolio_json, _github_config,
 )
 from news import fetch_catalyst_news
+from analysis import generate_summary, build_context_prompt
+import chat
 
 st.set_page_config(page_title="Gold & Silver Strategy Monitor", layout="wide")
 st.title("Gold & Silver Strategy Monitor")
@@ -240,6 +242,34 @@ for tab, metal, spot_ticker in [(tab_gold, "gold", "GC=F"), (tab_silver, "silver
                     if ratio_key in ("swing_high", "swing_low"):
                         continue
                     st.write(f"  {ratio_key}: ${value:,.0f}")
+
+        # --- Market Analysis Summary ---
+        st.subheader(f"{metal.title()} Market Analysis")
+        current_price = spot[metal]["price_usd"]
+        summary_text = generate_summary(metal, score, current_price)
+        st.markdown(summary_text)
+
+        # --- Chat Interface ---
+        context = build_context_prompt(metal, score, current_price, fib)
+        if chat.is_chat_available():
+            chat_key = f"chat_history_{metal}"
+            if chat_key not in st.session_state:
+                st.session_state[chat_key] = []
+            with st.expander(f"Ask about {metal.title()} signals"):
+                for msg in st.session_state[chat_key]:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+                if prompt := st.chat_input(f"Ask about {metal} signals...", key=f"chat_input_{metal}"):
+                    st.session_state[chat_key].append({"role": "user", "content": prompt})
+                    with st.chat_message("user"):
+                        st.markdown(prompt)
+                    with st.chat_message("assistant"):
+                        with st.spinner("Thinking..."):
+                            answer = chat.ask(prompt, context, st.session_state[chat_key])
+                        st.markdown(answer)
+                    st.session_state[chat_key].append({"role": "assistant", "content": answer})
+        else:
+            st.caption("Add GROQ_API_KEY to Streamlit secrets to enable AI chat about signals.")
 
         # --- Timeframe Switcher + Charts ---
         st.subheader(f"{metal.title()} Charts")
