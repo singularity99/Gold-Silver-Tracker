@@ -283,28 +283,23 @@ st.sidebar.slider("Long-term %", 0, 100, key="w_long", on_change=_rebalance, arg
 st.sidebar.caption("Weight presets")
 preset_cols = st.sidebar.columns(3)
 for i, preset_name in enumerate(WEIGHT_PRESETS.keys()):
-    if preset_cols[i].button(preset_name, key=f"preset_{preset_name}"):
-        _apply_weight_preset(preset_name)
-        st.rerun()
+    preset_cols[i].button(
+        preset_name,
+        key=f"preset_{preset_name}",
+        on_click=_apply_weight_preset,
+        args=(preset_name,),
+    )
 
 st.sidebar.subheader("Saved Profiles")
 profile_names = sorted(st.session_state.get("profiles", {}).keys())
 st.sidebar.selectbox("Choose profile", [""] + profile_names, key="profile_select")
 profile_cols = st.sidebar.columns(2)
-if profile_cols[0].button("Apply Profile"):
-    _apply_selected_profile()
-    st.rerun()
-if profile_cols[1].button("Delete Profile"):
-    _delete_selected_profile()
-    st.rerun()
+profile_cols[0].button("Apply Profile", on_click=_apply_selected_profile)
+profile_cols[1].button("Delete Profile", on_click=_delete_selected_profile)
 st.sidebar.text_input("Save current settings as", key="profile_name_input")
-if st.sidebar.button("Save Profile"):
-    _save_profile()
-    st.rerun()
+st.sidebar.button("Save Profile", on_click=_save_profile)
 
-if st.sidebar.button("Pull latest shared settings"):
-    _sync_from_shared_store(force=True)
-    st.rerun()
+st.sidebar.button("Pull latest shared settings", on_click=_sync_from_shared_store, kwargs={"force": True})
 
 tf_weight_config = _normalise_weights(_state_weights())
 
