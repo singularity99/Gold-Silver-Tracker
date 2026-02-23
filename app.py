@@ -55,13 +55,33 @@ sma_slow = st.sidebar.number_input("Slow SMA", value=50, step=5)
 whale_vol_threshold = st.sidebar.number_input("Whale volume threshold (x avg)", value=2.0, step=0.5)
 
 st.sidebar.subheader("Timeframe Weights")
-w_short = st.sidebar.slider("Short-term (days-weeks) %", 0, 100, 48, 1)
-w_medium = st.sidebar.slider("Medium-term (weeks-months) %", 0, 100, 37, 1)
-w_long = st.sidebar.slider("Long-term (months-years) %", 0, 100, 15, 1)
-w_total = w_short + w_medium + w_long
-if w_total != 100:
-    st.sidebar.warning(f"Weights sum to {w_total}% (must be 100)")
-tf_weight_config = {"Short": w_short, "Medium": w_medium, "Long": w_long}
+# Auto-adjusting sliders: changing one redistributes the others proportionally
+for k in ("w_short", "w_medium", "w_long"):
+    if k not in st.session_state:
+        st.session_state[k] = {"w_short": 48, "w_medium": 37, "w_long": 15}[k]
+
+def _rebalance(changed_key):
+    """When one slider changes, proportionally adjust the other two to keep sum = 100."""
+    keys = ["w_short", "w_medium", "w_long"]
+    others = [k for k in keys if k != changed_key]
+    new_val = st.session_state[changed_key]
+    remaining = 100 - new_val
+    other_sum = sum(st.session_state[k] for k in others)
+    if other_sum > 0:
+        for k in others:
+            st.session_state[k] = max(0, round(st.session_state[k] / other_sum * remaining))
+        # Fix rounding to exactly 100
+        diff = 100 - new_val - sum(st.session_state[k] for k in others)
+        if diff != 0:
+            st.session_state[others[0]] += diff
+    else:
+        for i, k in enumerate(others):
+            st.session_state[k] = remaining // len(others) + (1 if i < remaining % len(others) else 0)
+
+st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
+st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
+st.sidebar.slider("Long-term %", 0, 100, key="w_long", on_change=_rebalance, args=("w_long",))
+tf_weight_config = {"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long}
 
 st.sidebar.subheader("Portfolio")
 portfolio_data = get_portfolio()
@@ -169,11 +189,7 @@ with tab_dashboard:
             "Conflicts are flagged when correlated indicators disagree."
         )
 
-    # ── Conflicts ──
-    for metal_name, sc in [("Gold", gold_score), ("Silver", silver_score)]:
-        if sc and sc["conflicts"]:
-            for conflict in sc["conflicts"]:
-                st.warning(f"{metal_name}: {conflict}")
+    # ── Conflicts (shown in indicator breakdown) ──
 
     # ── Market Analysis ──
     st.subheader("Market Analysis")
@@ -217,6 +233,8 @@ with tab_dashboard:
             continue
         with st.expander(f"{metal_name} Indicator Breakdown"):
             table_df = pd.DataFrame(sc["indicator_table"])
+            # Map conflict boolean to visual marker
+            table_df["Conflict"] = table_df["Conflict"].map({True: "\u26a0\ufe0f", False: ""})
             def _color_vote(val):
                 if val == "Bullish": return "color: #26A69A"
                 elif val == "Bearish": return "color: #EF5350"
@@ -229,11 +247,22 @@ with tab_dashboard:
                 if "Improving" in str(val): return "color: #26A69A"
                 elif "Deteriorating" in str(val): return "color: #EF5350"
                 return "color: #6B7280"
+            # Reorder columns to put Conflict early
+            cols = ["Indicator", "Timeframe", "Vote", "Direction", "Weight", "Weighted Score", "Conflict", "Correlation Group", "Detail"]
+            cols = [c for c in cols if c in table_df.columns]
+            table_df = table_df[cols]
             styled = (table_df.style
                       .applymap(_color_vote, subset=["Vote"])
                       .applymap(_color_wscore, subset=["Weighted Score"])
                       .applymap(_color_direction, subset=["Direction"]))
             st.dataframe(styled, use_container_width=True, hide_index=True)
+            # Show conflict explanations below the table
+            if sc["conflicts"]:
+                for c in sc["conflicts"]:
+                    st.caption(
+                        f"\u26a0\ufe0f **{c['group']}**: {c['ind_a']} ({c['vote_a']}) vs "
+                        f"{c['ind_b']} ({c['vote_b']}) -- {c['explanation']}"
+                    )
 
     # ── Fibonacci Levels ──
     for metal_name, fib_data in [("Gold", gold_fib), ("Silver", silver_fib)]:

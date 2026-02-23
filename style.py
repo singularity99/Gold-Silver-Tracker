@@ -378,6 +378,7 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
 .improving-badge {{ display:inline-block; background:rgba(38,166,154,0.15); color:{GREEN}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
 .badge-tooltip {{ display:none; position:absolute; bottom:calc(100% + 6px); left:0; min-width:280px; background:#1E2128; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; font-size:0.75rem; line-height:1.5; color:{TEXT_SECONDARY}; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.4); white-space:normal; }}
 .badge-wrap:hover .badge-tooltip {{ display:block; }}
+.conflict-badge {{ display:inline-block; background:rgba(255,179,0,0.15); color:{AMBER}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
 
 .etc-grid {{ display:flex; gap:8px; flex-wrap:wrap; }}
 .etc-tile {{ flex:1; min-width:120px; background:{BG_CARD}; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; text-align:center; }}
@@ -500,6 +501,20 @@ def signal_card_html(metal, score, price_usd) -> str:
     if imp_count > 0:
         imp_tooltip = _tooltip_lines(imp_rows, GREEN)
         badges += f'<span class="badge-wrap"><span class="improving-badge">{imp_count} improving</span><div class="badge-tooltip">{imp_tooltip}</div></span>'
+
+    # Conflict badge with hover
+    conflicts = score.get("conflicts", [])
+    if conflicts:
+        conflict_tooltip = ""
+        for c in conflicts:
+            conflict_tooltip += (
+                f'<div style="margin-bottom:6px;">'
+                f'<span style="color:{AMBER};font-weight:600;">\u26a0 {c["group"]}</span><br/>'
+                f'<span style="color:{GREEN if c["vote_a"] == "bullish" else RED}">{c["ind_a"]}</span> ({c["vote_a"]}) vs '
+                f'<span style="color:{GREEN if c["vote_b"] == "bullish" else RED}">{c["ind_b"]}</span> ({c["vote_b"]})<br/>'
+                f'<span style="color:{TEXT_MUTED}">{c["explanation"]}</span></div>'
+            )
+        badges += f' <span class="badge-wrap"><span class="conflict-badge">{len(conflicts)} conflicting</span><div class="badge-tooltip">{conflict_tooltip}</div></span>'
 
     return f"""
     <div class="signal-card {sig_cls}">

@@ -390,18 +390,28 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
         "Volatility": "Volatility Oscillator and Bollinger Squeeze disagree. Compression may be building before a breakout that the oscillator hasn't caught yet.",
     }
     conflicts = []
+    conflicting_indicators = set()
     for ind_a, ind_b, group in CORRELATED_PAIRS:
         vote_a = votes.get(ind_a, (0, ""))[0]
         vote_b = votes.get(ind_b, (0, ""))[0]
         if vote_a != 0 and vote_b != 0 and vote_a != vote_b:
             explanation = CONFLICT_EXPLANATIONS.get(group, "")
-            msg = (
-                f"{group} conflict: {ind_a} is {'bullish' if vote_a > 0 else 'bearish'} "
-                f"but {ind_b} is {'bullish' if vote_b > 0 else 'bearish'}"
-            )
-            if explanation:
-                msg += f" -- {explanation}"
-            conflicts.append(msg)
+            conflicting_indicators.add(ind_a)
+            conflicting_indicators.add(ind_b)
+            conflicts.append({
+                "group": group,
+                "ind_a": ind_a,
+                "vote_a": "bullish" if vote_a > 0 else "bearish",
+                "ind_b": ind_b,
+                "vote_b": "bullish" if vote_b > 0 else "bearish",
+                "explanation": explanation,
+            })
+    # Tag indicator rows with conflict info
+    for row in indicator_rows:
+        if row["Indicator"] in conflicting_indicators:
+            row["Conflict"] = True
+        else:
+            row["Conflict"] = False
 
     # Round to 2dp so classification matches the displayed value
     composite = round(composite, 2)
