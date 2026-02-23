@@ -13,7 +13,7 @@ from technicals import (
     bollinger_squeeze, momentum_bars, whale_volume_detection,
     rsi, sma_crossover, fibonacci_levels,
 )
-from signals import score_metal, allocation_recommendation, INDICATORS, _rescale_indicators
+from signals import score_metal, allocation_recommendation, INDICATORS, _rescale_indicators, DEFAULT_TF_WEIGHTS
 from charts import render_metal_chart
 from portfolio import (
     get_portfolio, set_total_pot, add_purchase, delete_purchase, get_summary,
@@ -57,9 +57,10 @@ whale_vol_threshold = st.sidebar.number_input("Whale volume threshold (x avg)", 
 
 st.sidebar.subheader("Timeframe Weights")
 # Auto-adjusting sliders: changing one redistributes the others proportionally
+_defaults = {"w_short": DEFAULT_TF_WEIGHTS["Short"], "w_medium": DEFAULT_TF_WEIGHTS["Medium"], "w_long": DEFAULT_TF_WEIGHTS["Long"]}
 for k in ("w_short", "w_medium", "w_long"):
     if k not in st.session_state:
-        st.session_state[k] = {"w_short": 48, "w_medium": 37, "w_long": 15}[k]
+        st.session_state[k] = _defaults[k]
 
 def _rebalance(changed_key):
     """When one slider changes, proportionally adjust the other two to keep sum = 100."""
