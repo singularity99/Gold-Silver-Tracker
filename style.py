@@ -586,7 +586,7 @@ def analysis_card_html(metal: str, summary_text: str) -> str:
             out += f'<div style="font-size:0.85rem;color:{TEXT_SECONDARY};margin-bottom:6px;line-height:1.5;">{section}</div>'
 
     return f"""
-    <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:8px;padding:16px 20px;margin-bottom:12px;border-top:3px solid {metal_color};">
+    <div style="padding:4px 0;border-top:3px solid {metal_color};margin-bottom:0;">
         {out}
     </div>"""
 

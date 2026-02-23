@@ -203,18 +203,18 @@ with tab_dashboard:
         if not sc:
             continue
         summary_text = generate_summary(metal_name, sc, spot[price_key]["price_usd"])
-        st.html(render_component(analysis_card_html(metal_name, summary_text)))
-        # Chat directly below the analysis card
-        context = build_context_prompt(metal_name, sc, spot[price_key]["price_usd"], fib_data)
-        if chat.is_chat_available():
-            chat_key = f"chat_history_{metal_name}"
-            if chat_key not in st.session_state:
-                st.session_state[chat_key] = []
-            with st.expander(f"Ask about {metal_name.title()} signals"):
+        with st.container(border=True):
+            st.html(render_component(analysis_card_html(metal_name, summary_text)))
+            # Chat inside the same container
+            context = build_context_prompt(metal_name, sc, spot[price_key]["price_usd"], fib_data)
+            if chat.is_chat_available():
+                chat_key = f"chat_history_{metal_name}"
+                if chat_key not in st.session_state:
+                    st.session_state[chat_key] = []
                 for msg in st.session_state[chat_key]:
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
-                if prompt := st.chat_input(f"Ask about {metal_name} signals...", key=f"chat_input_{metal_name}"):
+                if prompt := st.chat_input(f"Ask about {metal_name.title()} signals...", key=f"chat_input_{metal_name}"):
                     st.session_state[chat_key].append({"role": "user", "content": prompt})
                     with st.chat_message("user"):
                         st.markdown(prompt)
@@ -223,8 +223,8 @@ with tab_dashboard:
                             answer = chat.ask(prompt, context, st.session_state[chat_key])
                         st.markdown(answer)
                     st.session_state[chat_key].append({"role": "assistant", "content": answer})
-        else:
-            st.caption(f"Add GROQ_API_KEY to enable AI chat for {metal_name.title()} signals.")
+            else:
+                st.caption(f"Add GROQ_API_KEY to enable AI chat for {metal_name.title()} signals.")
 
     # ── Indicator Breakdown Tables ──
     for metal_name, sc in [("Gold", gold_score), ("Silver", silver_score)]:
