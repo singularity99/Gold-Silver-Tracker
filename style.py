@@ -424,7 +424,12 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
 
     def _inr_fmt(val):
         if val and val == val:
-            return f"\u20b9{val / 1e7:.2f} Cr/kg"
+            if val >= 1e7:
+                return f"\u20b9{val / 1e7:.2f} Cr/kg"
+            elif val >= 1e5:
+                return f"\u20b9{val / 1e5:.2f} L/kg"
+            else:
+                return f"\u20b9{val:,.0f}/kg"
         return "N/A"
 
     def _td(cls, label, price, change="", chg_cls="neutral"):
