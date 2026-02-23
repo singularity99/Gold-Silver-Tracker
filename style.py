@@ -508,6 +508,7 @@ def signal_card_html(metal, score, price_usd) -> str:
             <span class="signal-label {sig_cls}">{sig}</span>
         </div>
         <div class="score-big {score_cls}">{comp:+.2f}</div>
+        <div style="font-size:0.7rem;color:{TEXT_MUTED};margin-top:-8px;margin-bottom:10px;">WEIGHTED COMPOSITE SCORE</div>
         <div class="sub-scores">
             {_sub("Short", "Short", score["timeframe_weights"]["Short"])}
             {_sub("Medium", "Medium", score["timeframe_weights"]["Medium"])}
