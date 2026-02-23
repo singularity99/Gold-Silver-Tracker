@@ -10,6 +10,8 @@ SPOT_TICKERS = {
 }
 
 FX_TICKER = "GBPUSD=X"
+FX_INR_TICKER = "USDINR=X"
+TROY_OZ_PER_KG = 32.1507
 
 DEFAULT_ETC_TICKERS = {
     "SGLN.L": "iShares Physical Gold",
@@ -37,10 +39,20 @@ def fetch_spot_prices():
     except Exception:
         gbp_usd = 1.35
 
+    try:
+        usd_inr = yf.Ticker(FX_INR_TICKER).fast_info["lastPrice"]
+    except Exception:
+        usd_inr = 83.0
+
     result["gbp_usd"] = gbp_usd
+    result["usd_inr"] = usd_inr
     for metal in ("gold", "silver"):
         usd = result[metal]["price_usd"]
         result[metal]["price_gbp"] = usd / gbp_usd if not np.isnan(usd) else np.nan
+        if metal == "gold":
+            result[metal]["price_inr"] = usd * usd_inr if not np.isnan(usd) else np.nan  # per oz
+        else:
+            result[metal]["price_inr"] = usd * TROY_OZ_PER_KG * usd_inr if not np.isnan(usd) else np.nan  # per kg
 
     if not np.isnan(result["gold"]["price_usd"]) and not np.isnan(result["silver"]["price_usd"]):
         result["ratio"] = result["gold"]["price_usd"] / result["silver"]["price_usd"]

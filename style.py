@@ -419,11 +419,23 @@ def render_component(html_content: str, height: int = None) -> str:
 # ── HTML Template Helpers ───────────────────────────────────────────
 
 def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
-                      gs_ratio, gbp_usd, gold_gbp=None, silver_gbp=None) -> str:
+                      gs_ratio, gbp_usd, gold_gbp=None, silver_gbp=None,
+                      gold_inr=None, silver_inr=None) -> str:
     def _chg_class(val):
         if val > 0: return "up"
         if val < 0: return "down"
         return "neutral"
+
+    def _inr_fmt(val, unit):
+        """Format INR price with appropriate scaling."""
+        if val and val == val:
+            if val >= 1e7:
+                return f"\u20b9{val / 1e7:.2f} Cr/{unit}"
+            elif val >= 1e5:
+                return f"\u20b9{val / 1e5:.2f} L/{unit}"
+            else:
+                return f"\u20b9{val:,.0f}/{unit}"
+        return "N/A"
 
     items = [
         ("ticker-gold", "Gold Spot",
@@ -437,6 +449,10 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
         items.append(("ticker-gold", "Gold GBP", f"\u00a3{gold_gbp:,.0f}", "", "neutral"))
     if silver_gbp and silver_gbp == silver_gbp:
         items.append(("ticker-silver", "Silver GBP", f"\u00a3{silver_gbp:.2f}", "", "neutral"))
+    if gold_inr and gold_inr == gold_inr:
+        items.append(("ticker-gold", "Gold INR", _inr_fmt(gold_inr, "oz"), "", "neutral"))
+    if silver_inr and silver_inr == silver_inr:
+        items.append(("ticker-silver", "Silver INR", _inr_fmt(silver_inr, "kg"), "", "neutral"))
     items.append(("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A", "", "neutral"))
     items.append(("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A", "", "neutral"))
 
