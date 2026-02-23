@@ -102,7 +102,10 @@ def generate_summary(metal: str, score: dict, price_usd: float) -> str:
     if conflicts:
         conflict_text = "\n\n**Active conflicts**:\n"
         for c in conflicts:
-            conflict_text += f"- {c}\n"
+            if isinstance(c, dict):
+                conflict_text += f"- {c['group']}: {c['ind_a']} ({c['vote_a']}) vs {c['ind_b']} ({c['vote_b']})\n"
+            else:
+                conflict_text += f"- {c}\n"
 
     # Actionable conclusion
     action = "\n\n**Action**: "

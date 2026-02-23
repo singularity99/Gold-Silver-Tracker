@@ -26,6 +26,7 @@ from style import (
     GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED,
     ticker_strip_html, signal_card_html, etc_tile_html,
     news_card_html, port_stat_html, render_component,
+    analysis_card_html,
 )
 
 st.set_page_config(
@@ -196,8 +197,7 @@ with tab_dashboard:
     for metal_name, sc, price_key in [("gold", gold_score, "gold"), ("silver", silver_score, "silver")]:
         if sc:
             summary_text = generate_summary(metal_name, sc, spot[price_key]["price_usd"])
-            st.markdown(summary_text)
-            st.divider()
+            st.html(render_component(analysis_card_html(metal_name, summary_text)))
 
     # ── Chat ──
     for metal_name, sc, fib_data, price_key in [

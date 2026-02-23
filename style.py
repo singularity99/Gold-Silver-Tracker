@@ -541,6 +541,40 @@ def etc_tile_html(ticker, price_str, change_pct) -> str:
     </div>"""
 
 
+def analysis_card_html(metal: str, summary_text: str) -> str:
+    """Render market analysis summary in a styled card."""
+    metal_color = GOLD if metal.lower() == "gold" else SILVER
+    # Convert markdown-like formatting to HTML
+    import re
+    html = summary_text
+    # Bold
+    html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
+    # Line breaks
+    html = html.replace('\n\n', '</p><p>').replace('\n- ', f'<br/><span style="color:{TEXT_MUTED};">&bull;</span> ')
+    # Wrap sections
+    sections = html.split('</p><p>')
+    out = ""
+    for i, section in enumerate(sections):
+        section = section.strip()
+        if not section:
+            continue
+        if section.startswith('<strong>Action'):
+            out += f'<div style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-left:3px solid {metal_color};border-radius:0 4px 4px 0;">{section}</div>'
+        elif 'Convergence' in section or 'Recovery' in section:
+            out += f'<div style="margin-top:8px;padding:8px 10px;background:rgba(255,179,0,0.08);border-radius:4px;font-size:0.85rem;">{section}</div>'
+        elif 'Active conflicts' in section:
+            out += f'<div style="margin-top:8px;padding:8px 10px;background:rgba(239,83,80,0.08);border-radius:4px;font-size:0.85rem;">{section}</div>'
+        elif i == 0:
+            out += f'<div style="font-size:1.05rem;margin-bottom:10px;color:{TEXT_PRIMARY};">{section}</div>'
+        else:
+            out += f'<div style="font-size:0.85rem;color:{TEXT_SECONDARY};margin-bottom:6px;line-height:1.5;">{section}</div>'
+
+    return f"""
+    <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:8px;padding:16px 20px;margin-bottom:12px;border-top:3px solid {metal_color};">
+        {out}
+    </div>"""
+
+
 def news_card_html(published, source, title, summary_text, link) -> str:
     summary_html = f'<div class="news-summary">{summary_text[:400]}{"..." if len(summary_text)>400 else ""}</div>' if summary_text else ""
     return f"""
