@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 REPO_FILE_PATH = "portfolio_data.json"
-DEFAULT_DATA = {"total_pot": 2_000_000, "purchases": []}
+DEFAULT_DATA = {"total_pot": 2_000_000, "purchases": [], "tf_weights": {"Short": 48, "Medium": 37, "Long": 15}}
 
 
 def _github_config() -> dict | None:
@@ -107,6 +107,17 @@ def get_portfolio() -> dict:
 def set_total_pot(amount: float):
     data = _load()
     data["total_pot"] = amount
+    _save(data)
+
+
+def get_tf_weights() -> dict:
+    data = _load()
+    return data.get("tf_weights", DEFAULT_DATA["tf_weights"])
+
+
+def set_tf_weights(weights: dict):
+    data = _load()
+    data["tf_weights"] = weights
     _save(data)
 
 

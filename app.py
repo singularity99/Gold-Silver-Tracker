@@ -18,6 +18,7 @@ from charts import render_metal_chart
 from portfolio import (
     get_portfolio, set_total_pot, add_purchase, delete_purchase, get_summary,
     export_portfolio_json, import_portfolio_json, _github_config,
+    get_tf_weights, set_tf_weights,
 )
 from news import fetch_catalyst_news
 from analysis import generate_summary, build_context_prompt
@@ -56,11 +57,11 @@ sma_slow = st.sidebar.number_input("Slow SMA", value=50, step=5)
 whale_vol_threshold = st.sidebar.number_input("Whale volume threshold (x avg)", value=2.0, step=0.5)
 
 st.sidebar.subheader("Timeframe Weights")
-# Auto-adjusting sliders: changing one redistributes the others proportionally
-_defaults = {"w_short": DEFAULT_TF_WEIGHTS["Short"], "w_medium": DEFAULT_TF_WEIGHTS["Medium"], "w_long": DEFAULT_TF_WEIGHTS["Long"]}
-for k in ("w_short", "w_medium", "w_long"):
+# Load persisted weights
+_saved_weights = get_tf_weights()
+for k, tf in [("w_short", "Short"), ("w_medium", "Medium"), ("w_long", "Long")]:
     if k not in st.session_state:
-        st.session_state[k] = _defaults[k]
+        st.session_state[k] = _saved_weights[tf]
 
 def _rebalance(changed_key):
     """When one slider changes, proportionally adjust the other two to keep sum = 100."""
@@ -72,13 +73,14 @@ def _rebalance(changed_key):
     if other_sum > 0:
         for k in others:
             st.session_state[k] = max(0, round(st.session_state[k] / other_sum * remaining))
-        # Fix rounding to exactly 100
         diff = 100 - new_val - sum(st.session_state[k] for k in others)
         if diff != 0:
             st.session_state[others[0]] += diff
     else:
         for i, k in enumerate(others):
             st.session_state[k] = remaining // len(others) + (1 if i < remaining % len(others) else 0)
+    # Persist
+    set_tf_weights({"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long})
 
 st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
 st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
