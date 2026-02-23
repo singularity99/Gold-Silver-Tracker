@@ -103,16 +103,13 @@ def _set_state_from_config(config: dict):
     st.session_state["w_short"] = w["Short"]
     st.session_state["w_medium"] = w["Medium"]
     st.session_state["w_long"] = w["Long"]
-    st.session_state["m_w_short"] = w["Short"]
-    st.session_state["m_w_medium"] = w["Medium"]
-    st.session_state["m_w_long"] = w["Long"]
 
 
-def _state_weights(prefix: str = "w") -> dict:
+def _state_weights() -> dict:
     return {
-        "Short": int(st.session_state[f"{prefix}_short"]),
-        "Medium": int(st.session_state[f"{prefix}_medium"]),
-        "Long": int(st.session_state[f"{prefix}_long"]),
+        "Short": int(st.session_state["w_short"]),
+        "Medium": int(st.session_state["w_medium"]),
+        "Long": int(st.session_state["w_long"]),
     }
 
 
@@ -127,7 +124,7 @@ def _state_config() -> dict:
         "sma_fast": st.session_state.get("sma_fast", 20),
         "sma_slow": st.session_state.get("sma_slow", 50),
         "whale_vol_threshold": st.session_state.get("whale_vol_threshold", 2.0),
-        "tf_weights": _state_weights("w") if all(k in st.session_state for k in ("w_short", "w_medium", "w_long")) else DEFAULT_TF_WEIGHTS,
+        "tf_weights": _state_weights() if all(k in st.session_state for k in ("w_short", "w_medium", "w_long")) else DEFAULT_TF_WEIGHTS,
     })
 
 
@@ -175,16 +172,7 @@ def _rebalance_keys(keys: list[str], changed_key: str):
 
 def _rebalance(changed_key):
     _rebalance_keys(["w_short", "w_medium", "w_long"], changed_key)
-    weights = _normalise_weights(_state_weights("w"))
-    st.session_state["w_short"] = weights["Short"]
-    st.session_state["w_medium"] = weights["Medium"]
-    st.session_state["w_long"] = weights["Long"]
-    _persist_config()
-
-
-def _rebalance_mobile(changed_key):
-    _rebalance_keys(["m_w_short", "m_w_medium", "m_w_long"], changed_key)
-    weights = _normalise_weights(_state_weights("m_w"))
+    weights = _normalise_weights(_state_weights())
     st.session_state["w_short"] = weights["Short"]
     st.session_state["w_medium"] = weights["Medium"]
     st.session_state["w_long"] = weights["Long"]
@@ -228,17 +216,11 @@ st.sidebar.subheader("Timeframe Weights")
 st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
 st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
 st.sidebar.slider("Long-term %", 0, 100, key="w_long", on_change=_rebalance, args=("w_long",))
+if st.sidebar.button("Pull latest shared settings"):
+    _sync_from_shared_store(force=True)
+    st.rerun()
 
-with st.expander("Quick Settings (Mobile)"):
-    st.caption("These mirror shared values from cloud storage and sync across devices on refresh.")
-    st.slider("Short-term %", 0, 100, key="m_w_short", on_change=_rebalance_mobile, args=("m_w_short",))
-    st.slider("Medium-term %", 0, 100, key="m_w_medium", on_change=_rebalance_mobile, args=("m_w_medium",))
-    st.slider("Long-term %", 0, 100, key="m_w_long", on_change=_rebalance_mobile, args=("m_w_long",))
-    if st.button("Pull latest shared settings"):
-        _sync_from_shared_store(force=True)
-        st.rerun()
-
-tf_weight_config = _normalise_weights(_state_weights("w"))
+tf_weight_config = _normalise_weights(_state_weights())
 
 st.sidebar.subheader("Portfolio")
 
