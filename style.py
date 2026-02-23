@@ -508,11 +508,9 @@ def signal_card_html(metal, score, price_usd) -> str:
         conflict_tooltip = ""
         for c in conflicts:
             conflict_tooltip += (
-                f'<div style="margin-bottom:6px;">'
-                f'<span style="color:{AMBER};font-weight:600;">\u26a0 {c["group"]}</span><br/>'
-                f'<span style="color:{GREEN if c["vote_a"] == "bullish" else RED}">{c["ind_a"]}</span> ({c["vote_a"]}) vs '
-                f'<span style="color:{GREEN if c["vote_b"] == "bullish" else RED}">{c["ind_b"]}</span> ({c["vote_b"]})<br/>'
-                f'<span style="color:{TEXT_MUTED}">{c["explanation"]}</span></div>'
+                f'<div style="margin-bottom:4px;">'
+                f'<span style="color:{GREEN if c["vote_a"] == "bullish" else RED}">{c["ind_a"]}</span> vs '
+                f'<span style="color:{GREEN if c["vote_b"] == "bullish" else RED}">{c["ind_b"]}</span></div>'
             )
         badges += f' <span class="badge-wrap"><span class="conflict-badge">{len(conflicts)} conflicting</span><div class="badge-tooltip">{conflict_tooltip}</div></span>'
 
