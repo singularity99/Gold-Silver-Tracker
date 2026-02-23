@@ -87,6 +87,15 @@ def _normalise_config(config: dict | None) -> dict:
     }
 
 
+def _version_epoch(version: str) -> float:
+    if not version:
+        return float("-inf")
+    try:
+        return datetime.fromisoformat(version.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return float("-inf")
+
+
 def _set_state_from_config(config: dict):
     cfg = _normalise_config(config)
     st.session_state["selected_etcs"] = cfg["selected_etcs"]
@@ -139,7 +148,8 @@ def _sync_from_shared_store(force: bool = False):
     shared_cfg_raw, shared_version = get_config()
     shared_cfg = _normalise_config(shared_cfg_raw)
     shared_version = shared_version or ""
-    if force or st.session_state.get("_config_version") != shared_version:
+    local_version = st.session_state.get("_config_version", "")
+    if force or not local_version or _version_epoch(shared_version) > _version_epoch(local_version):
         _set_state_from_config(shared_cfg)
         st.session_state["_config_version"] = shared_version
 
@@ -148,7 +158,8 @@ def _sync_from_shared_store(force: bool = False):
 def _watch_shared_config_updates():
     shared_cfg_raw, shared_version = get_config()
     shared_version = shared_version or ""
-    if shared_version and shared_version != st.session_state.get("_config_version"):
+    local_version = st.session_state.get("_config_version", "")
+    if shared_version and _version_epoch(shared_version) > _version_epoch(local_version):
         _set_state_from_config(_normalise_config(shared_cfg_raw))
         st.session_state["_config_version"] = shared_version
         st.rerun()
