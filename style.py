@@ -373,8 +373,11 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
 .sub-score-label {{ font-size:0.65rem; color:{TEXT_MUTED}; text-transform:uppercase; letter-spacing:0.3px; }}
 .sub-score-val {{ font-size:1.1rem; font-weight:700; font-family:'JetBrains Mono',monospace; margin:2px 0; }}
 .sub-score-signal {{ font-size:0.6rem; font-weight:600; text-transform:uppercase; }}
+.badge-wrap {{ position:relative; display:inline-block; cursor:pointer; }}
 .warning-badge {{ display:inline-block; background:rgba(239,83,80,0.15); color:{RED}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
 .improving-badge {{ display:inline-block; background:rgba(38,166,154,0.15); color:{GREEN}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
+.badge-tooltip {{ display:none; position:absolute; bottom:calc(100% + 6px); left:0; min-width:280px; background:#1E2128; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; font-size:0.75rem; line-height:1.5; color:{TEXT_SECONDARY}; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.4); white-space:normal; }}
+.badge-wrap:hover .badge-tooltip {{ display:block; }}
 
 .etc-grid {{ display:flex; gap:8px; flex-wrap:wrap; }}
 .etc-tile {{ flex:1; min-width:120px; background:{BG_CARD}; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; text-align:center; }}
@@ -476,11 +479,27 @@ def signal_card_html(metal, score, price_usd) -> str:
             <div class="sub-score-signal" style="color:{scol}">{slabel}</div>
         </div>"""
 
+    det_rows = [r for r in rows if "Deteriorating" in r.get("Direction", "")]
+    imp_rows = [r for r in rows if "Improving" in r.get("Direction", "")]
+
+    def _tooltip_lines(indicator_rows, color):
+        lines = ""
+        for r in indicator_rows:
+            vote = r.get("Vote", "Neutral")
+            vcol = GREEN if vote == "Bullish" else (RED if vote == "Bearish" else AMBER)
+            name = r.get("Indicator", "")
+            tf = r.get("Timeframe", "")
+            detail = r.get("Detail", "")[:80]
+            lines += f'<div style="margin-bottom:4px;"><span style="color:{vcol};font-weight:600;">{vote}</span> <span style="color:{TEXT_PRIMARY}">{name}</span> <span style="color:{TEXT_MUTED}">({tf})</span><br/><span style="color:{TEXT_MUTED}">{detail}</span></div>'
+        return lines
+
     badges = ""
     if det_count > 0:
-        badges += f'<span class="warning-badge">{det_count} deteriorating</span> '
+        det_tooltip = _tooltip_lines(det_rows, RED)
+        badges += f'<span class="badge-wrap"><span class="warning-badge">{det_count} deteriorating</span><div class="badge-tooltip">{det_tooltip}</div></span> '
     if imp_count > 0:
-        badges += f'<span class="improving-badge">{imp_count} improving</span>'
+        imp_tooltip = _tooltip_lines(imp_rows, GREEN)
+        badges += f'<span class="badge-wrap"><span class="improving-badge">{imp_count} improving</span><div class="badge-tooltip">{imp_tooltip}</div></span>'
 
     return f"""
     <div class="signal-card {sig_cls}">
