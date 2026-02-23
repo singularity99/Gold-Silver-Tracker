@@ -45,7 +45,7 @@ st.sidebar.title("Settings")
 
 available_etcs = list(DEFAULT_ETC_TICKERS.keys())
 WEIGHT_PRESETS = {
-    "Short-bias": {"Short": 60, "Medium": 30, "Long": 10},
+    "Short-bias": {"Short": 80, "Medium": 15, "Long": 5},
     "Balanced": {"Short": 34, "Medium": 33, "Long": 33},
     "Long-bias": {"Short": 20, "Medium": 30, "Long": 50},
 }
