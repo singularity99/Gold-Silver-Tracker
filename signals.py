@@ -16,9 +16,8 @@ STRENGTH_STRONG = "Strong"
 STRENGTH_MODERATE = "Moderate"
 STRENGTH_WEAK = "Weak"
 
-# Indicator definitions: (name, timeframe, weight, correlation_group)
-# Weights sum to 100. Tilted toward short/medium for weeks-to-months trading.
-# Short: 48%, Medium: 37%, Long: 15%
+# Indicator definitions: (name, timeframe, base_weight, correlation_group)
+# Base weights sum to 100. Actual weights rescaled by configurable timeframe percentages.
 INDICATORS = [
     ("Fib Long-term (2yr)",    "Long",   5,  "Price Levels"),
     ("Fib Medium-term (3mo)",  "Medium", 9,  "Price Levels"),

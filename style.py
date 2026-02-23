@@ -454,8 +454,8 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
     html += _td("ticker-gold", "USD/toz", f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A", gold_chg_str, gold_chg_cls)
     html += _td("ticker-gold", "GBP/toz", f"\u00a3{gold_gbp:,.0f}" if gold_gbp and gold_gbp == gold_gbp else "N/A", gold_chg_str, gold_chg_cls)
     html += _td("ticker-gold divider", "INR/kg", _inr_fmt(gold_inr) if gold_inr and gold_inr == gold_inr else "N/A", gold_chg_str, gold_chg_cls)
-    html += _td("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A")
-    html += _td("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A")
+    html += _td("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A", "&nbsp;")
+    html += _td("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A", "&nbsp;")
     html += '</tr>'
     # Row 2: Silver + USD/INR + GBP/INR
     html += '<tr>'
@@ -463,8 +463,8 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
     html += _td("ticker-silver", "USD/toz", f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A", silver_chg_str, silver_chg_cls)
     html += _td("ticker-silver", "GBP/toz", f"\u00a3{silver_gbp:.2f}" if silver_gbp and silver_gbp == silver_gbp else "N/A", silver_chg_str, silver_chg_cls)
     html += _td("ticker-silver divider", "INR/kg", _inr_fmt(silver_inr) if silver_inr and silver_inr == silver_inr else "N/A", silver_chg_str, silver_chg_cls)
-    html += _td("", "USD/INR", f"\u20b9{usd_inr_val:.2f}" if usd_inr_val else "N/A")
-    html += _td("", "GBP/INR", f"\u20b9{gbp_inr_val:.2f}" if gbp_inr_val else "N/A")
+    html += _td("", "USD/INR", f"\u20b9{usd_inr_val:.2f}" if usd_inr_val else "N/A", "&nbsp;")
+    html += _td("", "GBP/INR", f"\u20b9{gbp_inr_val:.2f}" if gbp_inr_val else "N/A", "&nbsp;")
     html += '</tr>'
     html += '</table>'
     return html
