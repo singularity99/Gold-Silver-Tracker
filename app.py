@@ -215,6 +215,10 @@ with tab_dashboard:
         with st.expander(f"{metal_name} Indicator Breakdown"):
             table_df = pd.DataFrame(sc["indicator_table"])
             table_df["Conflict"] = table_df["Conflict"].map({True: "\u26a0\ufe0f", False: ""})
+            if "Weight" in table_df.columns:
+                table_df["Weight"] = pd.to_numeric(table_df["Weight"], errors="coerce").apply(
+                    lambda x: int(np.ceil(x)) if pd.notna(x) else x
+                )
             def _color_vote(val):
                 if val == "Bullish": return "color: #26A69A"
                 elif val == "Bearish": return "color: #EF5350"
