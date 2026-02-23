@@ -25,7 +25,7 @@ import chat
 from style import (
     GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED,
     ticker_strip_html, signal_card_html, etc_tile_html,
-    news_card_html, port_stat_html,
+    news_card_html, port_stat_html, render_component,
 )
 
 st.set_page_config(
@@ -76,7 +76,7 @@ ticker_html = ticker_strip_html(
     gold_gbp=spot["gold"]["price_gbp"],
     silver_gbp=spot["silver"]["price_gbp"],
 )
-st.markdown(ticker_html, unsafe_allow_html=True)
+st.html(render_component(ticker_html))
 
 # ========================= ETC PRICE TILES =========================
 if selected_etcs:
@@ -91,7 +91,7 @@ if selected_etcs:
             price_str = "N/A"
         etc_html += etc_tile_html(ticker, price_str, ep.get("change_pct", 0))
     etc_html += '</div>'
-    st.markdown(etc_html, unsafe_allow_html=True)
+    st.html(render_component(etc_html))
 
 # ========================= MAIN TABS =========================
 tab_dashboard, tab_charts, tab_portfolio, tab_news = st.tabs([
@@ -113,17 +113,13 @@ with tab_dashboard:
         silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"]) if not silver_daily.empty else None
 
     # ── Signal Cards ──
-    cards_html = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    cards_html = '<div class="cards-row">'
     if gold_score:
-        cards_html += '<div style="flex:1;min-width:300px;">'
-        cards_html += signal_card_html("gold", gold_score, spot["gold"]["price_usd"])
-        cards_html += '</div>'
+        cards_html += '<div>' + signal_card_html("gold", gold_score, spot["gold"]["price_usd"]) + '</div>'
     if silver_score:
-        cards_html += '<div style="flex:1;min-width:300px;">'
-        cards_html += signal_card_html("silver", silver_score, spot["silver"]["price_usd"])
-        cards_html += '</div>'
+        cards_html += '<div>' + signal_card_html("silver", silver_score, spot["silver"]["price_usd"]) + '</div>'
     cards_html += '</div>'
-    st.markdown(cards_html, unsafe_allow_html=True)
+    st.html(render_component(cards_html))
 
     # ── Scoring Guide ──
     with st.expander("Scoring Guide"):
@@ -251,7 +247,7 @@ with tab_dashboard:
         remaining = summary["remaining"]
         alloc_html += port_stat_html("Remaining to Deploy", f"\u00a3{remaining:,.0f}")
         alloc_html += '</div>'
-        st.markdown(alloc_html, unsafe_allow_html=True)
+        st.html(render_component(alloc_html))
 
         suggested_silver = remaining * alloc["silver_pct"] / 100
         suggested_gold = remaining * alloc["gold_pct"] / 100
@@ -321,7 +317,7 @@ with tab_portfolio:
         </div>
     </div>"""
     stats_html += '</div>'
-    st.markdown(stats_html, unsafe_allow_html=True)
+    st.html(render_component(stats_html))
 
     if summary["deployment_pct"] > 0:
         st.progress(min(summary["deployment_pct"] / 100, 1.0), text=f"{summary['deployment_pct']:.0f}% deployed")
@@ -385,10 +381,9 @@ with tab_news:
             clean_title = title.rsplit(" - ", 1)[0] if " - " in title else title
             summary_text = art.get("summary_text", "")
             read_link = art.get("real_link", art["link"])
-            st.markdown(
-                news_card_html(published, source, clean_title, summary_text, read_link),
-                unsafe_allow_html=True,
-            )
+            st.html(render_component(
+                news_card_html(published, source, clean_title, summary_text, read_link)
+            ))
     else:
         st.write("No catalyst headlines found right now.")
 

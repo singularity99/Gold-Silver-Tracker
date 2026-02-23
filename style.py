@@ -338,6 +338,80 @@ h1, h2, h3 {{
 """
 
 
+# ── Component CSS (for st.html iframe rendering) ───────────────────
+COMPONENT_CSS = f"""
+<style>
+body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -apple-system, sans-serif; color: {TEXT_PRIMARY}; }}
+.ticker-strip {{ display:flex; gap:0; background:linear-gradient(180deg,#1E2128 0%,{BG_CARD} 100%); border:1px solid {BORDER}; border-radius:6px; padding:0; overflow-x:auto; -webkit-overflow-scrolling:touch; }}
+.ticker-item {{ flex:1; min-width:140px; padding:10px 16px; border-right:1px solid {BORDER}; text-align:center; }}
+.ticker-item:last-child {{ border-right:none; }}
+.ticker-label {{ font-size:0.7rem; color:{TEXT_SECONDARY}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; }}
+.ticker-price {{ font-size:1.3rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:{TEXT_PRIMARY}; }}
+.ticker-change {{ font-size:0.75rem; font-family:'JetBrains Mono',monospace; margin-top:1px; }}
+.ticker-change.up {{ color:{GREEN}; }} .ticker-change.down {{ color:{RED}; }} .ticker-change.neutral {{ color:{TEXT_MUTED}; }}
+.ticker-gold .ticker-price {{ color:{GOLD}; }} .ticker-silver .ticker-price {{ color:{SILVER}; }}
+
+.signal-card {{ background:{BG_CARD}; border:1px solid {BORDER}; border-radius:8px; padding:20px; position:relative; overflow:hidden; }}
+.signal-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:3px; }}
+.signal-card.strong-buy::before {{ background:{GREEN}; }}
+.signal-card.buy::before {{ background:{GREEN}; opacity:0.6; }}
+.signal-card.neutral::before {{ background:{AMBER}; }}
+.signal-card.sell::before {{ background:{RED}; opacity:0.6; }}
+.signal-card.strong-sell::before {{ background:{RED}; }}
+.signal-header {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }}
+.signal-metal {{ font-size:1.1rem; font-weight:600; }}
+.signal-label {{ font-size:0.8rem; font-weight:600; padding:3px 10px; border-radius:4px; text-transform:uppercase; letter-spacing:0.5px; }}
+.signal-label.strong-buy {{ background:rgba(38,166,154,0.2); color:{GREEN}; }}
+.signal-label.buy {{ background:rgba(38,166,154,0.15); color:{GREEN}; }}
+.signal-label.neutral {{ background:rgba(255,179,0,0.15); color:{AMBER}; }}
+.signal-label.sell {{ background:rgba(239,83,80,0.15); color:{RED}; }}
+.signal-label.strong-sell {{ background:rgba(239,83,80,0.2); color:{RED}; }}
+.score-big {{ font-size:2.8rem; font-weight:700; font-family:'JetBrains Mono',monospace; line-height:1; margin-bottom:12px; }}
+.score-big.positive {{ color:{GREEN}; }} .score-big.negative {{ color:{RED}; }} .score-big.flat {{ color:{AMBER}; }}
+.sub-scores {{ display:flex; gap:8px; margin-bottom:10px; }}
+.sub-score {{ flex:1; background:rgba(255,255,255,0.03); border:1px solid {BORDER}; border-radius:6px; padding:8px; text-align:center; }}
+.sub-score-label {{ font-size:0.65rem; color:{TEXT_MUTED}; text-transform:uppercase; letter-spacing:0.3px; }}
+.sub-score-val {{ font-size:1.1rem; font-weight:700; font-family:'JetBrains Mono',monospace; margin:2px 0; }}
+.sub-score-signal {{ font-size:0.6rem; font-weight:600; text-transform:uppercase; }}
+.warning-badge {{ display:inline-block; background:rgba(239,83,80,0.15); color:{RED}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
+.improving-badge {{ display:inline-block; background:rgba(38,166,154,0.15); color:{GREEN}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
+
+.etc-grid {{ display:flex; gap:8px; flex-wrap:wrap; }}
+.etc-tile {{ flex:1; min-width:120px; background:{BG_CARD}; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; text-align:center; }}
+.etc-ticker {{ font-size:0.7rem; color:{TEXT_SECONDARY}; font-weight:600; }}
+.etc-price {{ font-size:1.1rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:{TEXT_PRIMARY}; margin:2px 0; }}
+.etc-change {{ font-size:0.7rem; font-family:'JetBrains Mono',monospace; }}
+
+.news-card {{ background:{BG_CARD}; border:1px solid {BORDER}; border-radius:6px; padding:14px 16px; margin-bottom:10px; }}
+.news-meta {{ font-size:0.7rem; color:{TEXT_MUTED}; margin-bottom:4px; }}
+.news-title {{ font-size:0.9rem; font-weight:600; color:{TEXT_PRIMARY}; margin-bottom:6px; }}
+.news-summary {{ font-size:0.8rem; color:{TEXT_SECONDARY}; line-height:1.4; margin-bottom:6px; }}
+.news-link {{ font-size:0.75rem; color:{GOLD}; text-decoration:none; }}
+
+.port-stat {{ flex:1; min-width:120px; background:{BG_CARD}; border:1px solid {BORDER}; border-radius:6px; padding:12px 16px; text-align:center; }}
+.port-stat-label {{ font-size:0.65rem; color:{TEXT_MUTED}; text-transform:uppercase; letter-spacing:0.3px; }}
+.port-stat-val {{ font-size:1.4rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:{TEXT_PRIMARY}; margin:2px 0; }}
+
+.cards-row {{ display:flex; gap:12px; flex-wrap:wrap; }}
+.cards-row > div {{ flex:1; min-width:300px; }}
+
+@media (max-width: 768px) {{
+    .ticker-strip {{ flex-wrap:nowrap; }}
+    .ticker-item {{ min-width:110px; padding:8px 10px; }}
+    .ticker-price {{ font-size:1rem; }}
+    .score-big {{ font-size:2rem; }}
+    .sub-scores {{ flex-direction:column; }}
+    .etc-grid, .cards-row {{ flex-direction:column; }}
+}}
+</style>
+"""
+
+
+def render_component(html_content: str, height: int = None) -> str:
+    """Wrap HTML content with component CSS for st.html rendering."""
+    return COMPONENT_CSS + html_content
+
+
 # ── HTML Template Helpers ───────────────────────────────────────────
 
 def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
