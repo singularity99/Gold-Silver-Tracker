@@ -206,7 +206,39 @@ with tab_dashboard:
         )
         st.markdown(table)
 
-    # ── Conflicts (shown in indicator breakdown) ──
+    # ── Indicator Breakdown Tables ──
+    for metal_name, sc in [("Gold", gold_score), ("Silver", silver_score)]:
+        if not sc:
+            continue
+        with st.expander(f"{metal_name} Indicator Breakdown"):
+            table_df = pd.DataFrame(sc["indicator_table"])
+            table_df["Conflict"] = table_df["Conflict"].map({True: "\u26a0\ufe0f", False: ""})
+            def _color_vote(val):
+                if val == "Bullish": return "color: #26A69A"
+                elif val == "Bearish": return "color: #EF5350"
+                return "color: #6B7280"
+            def _color_wscore(val):
+                if val > 0: return "color: #26A69A"
+                elif val < 0: return "color: #EF5350"
+                return "color: #6B7280"
+            def _color_direction(val):
+                if "Improving" in str(val): return "color: #26A69A"
+                elif "Deteriorating" in str(val): return "color: #EF5350"
+                return "color: #6B7280"
+            cols = ["Indicator", "Timeframe", "Vote", "Direction", "Weight", "Weighted Score", "Conflict", "Correlation Group", "Detail"]
+            cols = [c for c in cols if c in table_df.columns]
+            table_df = table_df[cols]
+            styled = (table_df.style
+                      .applymap(_color_vote, subset=["Vote"])
+                      .applymap(_color_wscore, subset=["Weighted Score"])
+                      .applymap(_color_direction, subset=["Direction"]))
+            st.dataframe(styled, use_container_width=True, hide_index=True)
+            if sc["conflicts"]:
+                for c in sc["conflicts"]:
+                    st.caption(
+                        f"\u26a0\ufe0f **{c['group']}**: {c['ind_a']} ({c['vote_a']}) vs "
+                        f"{c['ind_b']} ({c['vote_b']}) -- {c['explanation']}"
+                    )
 
     # ── Market Analysis + Chat ──
     st.subheader("Market Analysis")
@@ -219,7 +251,6 @@ with tab_dashboard:
         summary_text = generate_summary(metal_name, sc, spot[price_key]["price_usd"])
         with st.container(border=True):
             st.html(render_component(analysis_card_html(metal_name, summary_text)))
-            # Chat inside the same container
             context = build_context_prompt(metal_name, sc, spot[price_key]["price_usd"], fib_data)
             if chat.is_chat_available():
                 chat_key = f"chat_history_{metal_name}"
@@ -239,43 +270,6 @@ with tab_dashboard:
                     st.session_state[chat_key].append({"role": "assistant", "content": answer})
             else:
                 st.caption(f"Add GROQ_API_KEY to enable AI chat for {metal_name.title()} signals.")
-
-    # ── Indicator Breakdown Tables ──
-    for metal_name, sc in [("Gold", gold_score), ("Silver", silver_score)]:
-        if not sc:
-            continue
-        with st.expander(f"{metal_name} Indicator Breakdown"):
-            table_df = pd.DataFrame(sc["indicator_table"])
-            # Map conflict boolean to visual marker
-            table_df["Conflict"] = table_df["Conflict"].map({True: "\u26a0\ufe0f", False: ""})
-            def _color_vote(val):
-                if val == "Bullish": return "color: #26A69A"
-                elif val == "Bearish": return "color: #EF5350"
-                return "color: #6B7280"
-            def _color_wscore(val):
-                if val > 0: return "color: #26A69A"
-                elif val < 0: return "color: #EF5350"
-                return "color: #6B7280"
-            def _color_direction(val):
-                if "Improving" in str(val): return "color: #26A69A"
-                elif "Deteriorating" in str(val): return "color: #EF5350"
-                return "color: #6B7280"
-            # Reorder columns to put Conflict early
-            cols = ["Indicator", "Timeframe", "Vote", "Direction", "Weight", "Weighted Score", "Conflict", "Correlation Group", "Detail"]
-            cols = [c for c in cols if c in table_df.columns]
-            table_df = table_df[cols]
-            styled = (table_df.style
-                      .applymap(_color_vote, subset=["Vote"])
-                      .applymap(_color_wscore, subset=["Weighted Score"])
-                      .applymap(_color_direction, subset=["Direction"]))
-            st.dataframe(styled, use_container_width=True, hide_index=True)
-            # Show conflict explanations below the table
-            if sc["conflicts"]:
-                for c in sc["conflicts"]:
-                    st.caption(
-                        f"\u26a0\ufe0f **{c['group']}**: {c['ind_a']} ({c['vote_a']}) vs "
-                        f"{c['ind_b']} ({c['vote_b']}) -- {c['explanation']}"
-                    )
 
     # ── Fibonacci Levels ──
     for metal_name, fib_data in [("Gold", gold_fib), ("Silver", silver_fib)]:
