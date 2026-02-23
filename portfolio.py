@@ -114,8 +114,8 @@ def _github_config() -> dict | None:
     return None
 
 
-def _github_read(config: dict) -> tuple[dict, str | None]:
-    """Read portfolio data from GitHub repo. Returns (data, sha)."""
+def _github_read(config: dict) -> tuple[dict | None, str | None]:
+    """Read portfolio data from GitHub repo. Returns (data, sha) or (None, None) on failure."""
     url = f"https://api.github.com/repos/{config['repo']}/contents/{REPO_FILE_PATH}"
     req = Request(url, headers={
         "Authorization": f"token {config['token']}",
@@ -127,7 +127,7 @@ def _github_read(config: dict) -> tuple[dict, str | None]:
             content = base64.b64decode(result["content"]).decode("utf-8")
             return json.loads(content), result["sha"]
     except URLError:
-        return deepcopy(DEFAULT_DATA), None
+        return None, None
 
 
 def _github_write(config: dict, data: dict, sha: str | None):
@@ -164,29 +164,52 @@ def _local_file() -> str:
         return os.path.join("/tmp", REPO_FILE_PATH)
 
 
-def _load() -> dict:
-    gh = _github_config()
-    if gh:
-        data, _ = _github_read(gh)
-        return data
+def _read_local_data() -> dict | None:
     path = _local_file()
     if os.path.exists(path) and os.path.getsize(path) > 0:
         try:
             with open(path, "r") as f:
                 return json.load(f)
         except (json.JSONDecodeError, ValueError):
-            pass
+            return None
+    return None
+
+
+def _version_epoch(data: dict | None) -> float:
+    if not isinstance(data, dict):
+        return float("-inf")
+    ver = data.get("config_updated_at", "")
+    if not isinstance(ver, str) or not ver:
+        return float("-inf")
+    try:
+        return datetime.fromisoformat(ver.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return float("-inf")
+
+
+def _load() -> dict:
+    local_data = _read_local_data()
+    gh = _github_config()
+    if gh:
+        remote_data, _ = _github_read(gh)
+        if remote_data and local_data:
+            return local_data if _version_epoch(local_data) > _version_epoch(remote_data) else remote_data
+        if remote_data:
+            return remote_data
+    if local_data:
+        return local_data
     return deepcopy(DEFAULT_DATA)
 
 
 def _save(data: dict):
+    path = _local_file()
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, default=str)
+
     gh = _github_config()
     if gh:
         _, sha = _github_read(gh)
         _github_write(gh, data, sha)
-    path = _local_file()
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, default=str)
 
 
 def get_portfolio() -> dict:
