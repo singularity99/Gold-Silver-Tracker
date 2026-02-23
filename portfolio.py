@@ -1,12 +1,101 @@
 import json
 import os
 import base64
+from copy import deepcopy
 from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 REPO_FILE_PATH = "portfolio_data.json"
-DEFAULT_DATA = {"total_pot": 2_000_000, "purchases": [], "tf_weights": {"Short": 48, "Medium": 37, "Long": 15}}
+DEFAULT_TF_WEIGHTS = {"Short": 48, "Medium": 37, "Long": 15}
+DEFAULT_CONFIG = {
+    "selected_etcs": ["SGLN.L", "SSLN.L"],
+    "fib_tolerance": 2.0,
+    "gs_ratio_threshold": 63.0,
+    "rsi_period": 14,
+    "ema_fast": 9,
+    "ema_slow": 21,
+    "sma_fast": 20,
+    "sma_slow": 50,
+    "whale_vol_threshold": 2.0,
+    "tf_weights": deepcopy(DEFAULT_TF_WEIGHTS),
+}
+DEFAULT_DATA = {
+    "total_pot": 2_000_000,
+    "purchases": [],
+    "tf_weights": deepcopy(DEFAULT_TF_WEIGHTS),
+    "config": deepcopy(DEFAULT_CONFIG),
+    "config_updated_at": "",
+}
+
+
+def _normalise_tf_weights(weights: dict | None) -> dict:
+    base = deepcopy(DEFAULT_TF_WEIGHTS)
+    if isinstance(weights, dict):
+        for tf in ("Short", "Medium", "Long"):
+            if tf in weights:
+                try:
+                    base[tf] = max(0, int(weights[tf]))
+                except (TypeError, ValueError):
+                    pass
+    total = sum(base.values())
+    if total == 100:
+        return base
+    if total <= 0:
+        return deepcopy(DEFAULT_TF_WEIGHTS)
+    short = int(round(base["Short"] * 100 / total))
+    medium = int(round(base["Medium"] * 100 / total))
+    long = 100 - short - medium
+    return {"Short": short, "Medium": medium, "Long": long}
+
+
+def _normalise_config(config: dict | None) -> dict:
+    merged = deepcopy(DEFAULT_CONFIG)
+    if isinstance(config, dict):
+        if isinstance(config.get("selected_etcs"), list):
+            merged["selected_etcs"] = [str(x) for x in config["selected_etcs"] if str(x).strip()]
+
+        for key in ("fib_tolerance", "gs_ratio_threshold", "whale_vol_threshold"):
+            if key in config:
+                try:
+                    merged[key] = float(config[key])
+                except (TypeError, ValueError):
+                    pass
+
+        for key in ("rsi_period", "ema_fast", "ema_slow", "sma_fast", "sma_slow"):
+            if key in config:
+                try:
+                    merged[key] = int(config[key])
+                except (TypeError, ValueError):
+                    pass
+
+        merged["tf_weights"] = _normalise_tf_weights(config.get("tf_weights"))
+    else:
+        merged["tf_weights"] = _normalise_tf_weights(None)
+    return merged
+
+
+def _merge_config(base: dict, updates: dict) -> dict:
+    merged = deepcopy(base)
+    if not isinstance(updates, dict):
+        return merged
+    if "selected_etcs" in updates and isinstance(updates["selected_etcs"], list):
+        merged["selected_etcs"] = [str(x) for x in updates["selected_etcs"] if str(x).strip()]
+    for key in ("fib_tolerance", "gs_ratio_threshold", "whale_vol_threshold"):
+        if key in updates:
+            try:
+                merged[key] = float(updates[key])
+            except (TypeError, ValueError):
+                pass
+    for key in ("rsi_period", "ema_fast", "ema_slow", "sma_fast", "sma_slow"):
+        if key in updates:
+            try:
+                merged[key] = int(updates[key])
+            except (TypeError, ValueError):
+                pass
+    if "tf_weights" in updates:
+        merged["tf_weights"] = _normalise_tf_weights(updates.get("tf_weights"))
+    return _normalise_config(merged)
 
 
 def _github_config() -> dict | None:
@@ -38,7 +127,7 @@ def _github_read(config: dict) -> tuple[dict, str | None]:
             content = base64.b64decode(result["content"]).decode("utf-8")
             return json.loads(content), result["sha"]
     except URLError:
-        return DEFAULT_DATA.copy(), None
+        return deepcopy(DEFAULT_DATA), None
 
 
 def _github_write(config: dict, data: dict, sha: str | None):
@@ -87,7 +176,7 @@ def _load() -> dict:
                 return json.load(f)
         except (json.JSONDecodeError, ValueError):
             pass
-    return DEFAULT_DATA.copy()
+    return deepcopy(DEFAULT_DATA)
 
 
 def _save(data: dict):
@@ -110,15 +199,38 @@ def set_total_pot(amount: float):
     _save(data)
 
 
-def get_tf_weights() -> dict:
+def get_config() -> tuple[dict, str]:
     data = _load()
-    return data.get("tf_weights", DEFAULT_DATA["tf_weights"])
+    config = _normalise_config(data.get("config"))
+    legacy_tf = data.get("tf_weights")
+    if isinstance(legacy_tf, dict) and (not isinstance(data.get("config"), dict) or "tf_weights" not in data.get("config", {})):
+        config["tf_weights"] = _normalise_tf_weights(legacy_tf)
+    updated_at = data.get("config_updated_at", "")
+    return config, updated_at
+
+
+def set_config(config_updates: dict) -> str:
+    data = _load()
+    current = _normalise_config(data.get("config"))
+    legacy_tf = data.get("tf_weights")
+    if isinstance(legacy_tf, dict) and (not isinstance(data.get("config"), dict) or "tf_weights" not in data.get("config", {})):
+        current["tf_weights"] = _normalise_tf_weights(legacy_tf)
+    merged = _merge_config(current, config_updates)
+    updated_at = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+    data["config"] = merged
+    data["config_updated_at"] = updated_at
+    data["tf_weights"] = merged["tf_weights"]
+    _save(data)
+    return updated_at
+
+
+def get_tf_weights() -> dict:
+    config, _ = get_config()
+    return config["tf_weights"]
 
 
 def set_tf_weights(weights: dict):
-    data = _load()
-    data["tf_weights"] = weights
-    _save(data)
+    set_config({"tf_weights": weights})
 
 
 def add_purchase(metal: str, etc_ticker: str, gbp_amount: float,
@@ -154,6 +266,12 @@ def import_portfolio_json(json_str: str):
     """Import portfolio data from JSON string (from upload)."""
     data = json.loads(json_str)
     if "total_pot" in data and "purchases" in data:
+        data["config"] = _normalise_config(data.get("config"))
+        if isinstance(data.get("tf_weights"), dict):
+            data["config"]["tf_weights"] = _normalise_tf_weights(data["tf_weights"])
+        data["tf_weights"] = data["config"]["tf_weights"]
+        if "config_updated_at" not in data:
+            data["config_updated_at"] = datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
         _save(data)
 
 

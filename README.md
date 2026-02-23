@@ -13,6 +13,7 @@ A Streamlit dashboard for monitoring gold and silver prices and generating tradi
 - **GBP 2M portfolio tracker**: Purchase logging, live P&L, deployment progress, allocation recommendations
 - **Catalyst news feed**: Filtered RSS headlines for Fed, Iran, tariffs, Asia demand, central bank buying
 - **Configurable parameters**: All thresholds adjustable via sidebar
+- **Shared config persistence**: All sidebar settings (ETCs, signal params, timeframe weights) persist in `portfolio_data.json` and sync across devices via GitHub-backed storage
 - **ETC tracking difference**: Spot vs ETC divergence monitoring
 
 ## Supported ETCs

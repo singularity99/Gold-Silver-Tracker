@@ -18,7 +18,7 @@ from charts import render_metal_chart
 from portfolio import (
     get_portfolio, set_total_pot, add_purchase, delete_purchase, get_summary,
     export_portfolio_json, import_portfolio_json, _github_config,
-    get_tf_weights, set_tf_weights,
+    get_config, set_config,
 )
 from news import fetch_catalyst_news
 from analysis import generate_summary, build_context_prompt
@@ -44,28 +44,120 @@ st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 st.sidebar.title("Settings")
 
 available_etcs = list(DEFAULT_ETC_TICKERS.keys())
-selected_etcs = st.sidebar.multiselect("Track ETCs (Hargreaves Lansdown)", available_etcs, default=available_etcs[:2])
 
-st.sidebar.subheader("Signal Parameters")
-fib_tolerance = st.sidebar.slider("Fibonacci proximity tolerance (%)", 0.5, 5.0, 2.0, 0.5)
-gs_ratio_threshold = st.sidebar.number_input("G/S Ratio threshold (favour silver above)", value=63.0, step=0.5)
-rsi_period = st.sidebar.number_input("RSI period", value=14, step=1)
-ema_fast = st.sidebar.number_input("Fast EMA", value=9, step=1)
-ema_slow = st.sidebar.number_input("Slow EMA", value=21, step=1)
-sma_fast = st.sidebar.number_input("Fast SMA", value=20, step=5)
-sma_slow = st.sidebar.number_input("Slow SMA", value=50, step=5)
-whale_vol_threshold = st.sidebar.number_input("Whale volume threshold (x avg)", value=2.0, step=0.5)
 
-st.sidebar.subheader("Timeframe Weights")
-# Load persisted weights
-_saved_weights = get_tf_weights()
-for k, tf in [("w_short", "Short"), ("w_medium", "Medium"), ("w_long", "Long")]:
-    if k not in st.session_state:
-        st.session_state[k] = _saved_weights[tf]
+def _normalise_weights(weights: dict | None) -> dict:
+    short = int((weights or {}).get("Short", DEFAULT_TF_WEIGHTS["Short"]))
+    medium = int((weights or {}).get("Medium", DEFAULT_TF_WEIGHTS["Medium"]))
+    long = int((weights or {}).get("Long", DEFAULT_TF_WEIGHTS["Long"]))
+    short, medium, long = max(0, short), max(0, medium), max(0, long)
+    total = short + medium + long
+    if total == 100:
+        return {"Short": short, "Medium": medium, "Long": long}
+    if total <= 0:
+        return DEFAULT_TF_WEIGHTS.copy()
+    scaled = {
+        "Short": int(round(short * 100 / total)),
+        "Medium": int(round(medium * 100 / total)),
+    }
+    scaled["Long"] = 100 - scaled["Short"] - scaled["Medium"]
+    return scaled
 
-def _rebalance(changed_key):
-    """When one slider changes, proportionally adjust the other two to keep sum = 100."""
-    keys = ["w_short", "w_medium", "w_long"]
+
+def _normalise_selected_etcs(selected: list[str] | None) -> list[str]:
+    valid = [tk for tk in (selected or []) if tk in available_etcs]
+    return valid if valid else available_etcs[:2]
+
+
+def _normalise_config(config: dict | None) -> dict:
+    cfg = config or {}
+    fib_tolerance = float(cfg.get("fib_tolerance", 2.0))
+    fib_tolerance = min(5.0, max(0.5, round(fib_tolerance * 2) / 2))
+    return {
+        "selected_etcs": _normalise_selected_etcs(cfg.get("selected_etcs")),
+        "fib_tolerance": fib_tolerance,
+        "gs_ratio_threshold": float(cfg.get("gs_ratio_threshold", 63.0)),
+        "rsi_period": max(2, int(cfg.get("rsi_period", 14))),
+        "ema_fast": max(1, int(cfg.get("ema_fast", 9))),
+        "ema_slow": max(1, int(cfg.get("ema_slow", 21))),
+        "sma_fast": max(1, int(cfg.get("sma_fast", 20))),
+        "sma_slow": max(1, int(cfg.get("sma_slow", 50))),
+        "whale_vol_threshold": max(0.1, float(cfg.get("whale_vol_threshold", 2.0))),
+        "tf_weights": _normalise_weights(cfg.get("tf_weights", DEFAULT_TF_WEIGHTS)),
+    }
+
+
+def _set_state_from_config(config: dict):
+    cfg = _normalise_config(config)
+    st.session_state["selected_etcs"] = cfg["selected_etcs"]
+    st.session_state["fib_tolerance"] = cfg["fib_tolerance"]
+    st.session_state["gs_ratio_threshold"] = cfg["gs_ratio_threshold"]
+    st.session_state["rsi_period"] = cfg["rsi_period"]
+    st.session_state["ema_fast"] = cfg["ema_fast"]
+    st.session_state["ema_slow"] = cfg["ema_slow"]
+    st.session_state["sma_fast"] = cfg["sma_fast"]
+    st.session_state["sma_slow"] = cfg["sma_slow"]
+    st.session_state["whale_vol_threshold"] = cfg["whale_vol_threshold"]
+
+    w = cfg["tf_weights"]
+    st.session_state["w_short"] = w["Short"]
+    st.session_state["w_medium"] = w["Medium"]
+    st.session_state["w_long"] = w["Long"]
+    st.session_state["m_w_short"] = w["Short"]
+    st.session_state["m_w_medium"] = w["Medium"]
+    st.session_state["m_w_long"] = w["Long"]
+
+
+def _state_weights(prefix: str = "w") -> dict:
+    return {
+        "Short": int(st.session_state[f"{prefix}_short"]),
+        "Medium": int(st.session_state[f"{prefix}_medium"]),
+        "Long": int(st.session_state[f"{prefix}_long"]),
+    }
+
+
+def _state_config() -> dict:
+    return _normalise_config({
+        "selected_etcs": st.session_state.get("selected_etcs", []),
+        "fib_tolerance": st.session_state.get("fib_tolerance", 2.0),
+        "gs_ratio_threshold": st.session_state.get("gs_ratio_threshold", 63.0),
+        "rsi_period": st.session_state.get("rsi_period", 14),
+        "ema_fast": st.session_state.get("ema_fast", 9),
+        "ema_slow": st.session_state.get("ema_slow", 21),
+        "sma_fast": st.session_state.get("sma_fast", 20),
+        "sma_slow": st.session_state.get("sma_slow", 50),
+        "whale_vol_threshold": st.session_state.get("whale_vol_threshold", 2.0),
+        "tf_weights": _state_weights("w") if all(k in st.session_state for k in ("w_short", "w_medium", "w_long")) else DEFAULT_TF_WEIGHTS,
+    })
+
+
+def _persist_config():
+    cfg = _state_config()
+    updated_at = set_config(cfg)
+    _set_state_from_config(cfg)
+    st.session_state["_config_version"] = updated_at
+
+
+def _sync_from_shared_store(force: bool = False):
+    shared_cfg_raw, shared_version = get_config()
+    shared_cfg = _normalise_config(shared_cfg_raw)
+    shared_version = shared_version or ""
+    if force or st.session_state.get("_config_version") != shared_version:
+        _set_state_from_config(shared_cfg)
+        st.session_state["_config_version"] = shared_version
+
+
+@st.fragment(run_every="10s")
+def _watch_shared_config_updates():
+    shared_cfg_raw, shared_version = get_config()
+    shared_version = shared_version or ""
+    if shared_version and shared_version != st.session_state.get("_config_version"):
+        _set_state_from_config(_normalise_config(shared_cfg_raw))
+        st.session_state["_config_version"] = shared_version
+        st.rerun()
+
+
+def _rebalance_keys(keys: list[str], changed_key: str):
     others = [k for k in keys if k != changed_key]
     new_val = st.session_state[changed_key]
     remaining = 100 - new_val
@@ -79,60 +171,90 @@ def _rebalance(changed_key):
     else:
         for i, k in enumerate(others):
             st.session_state[k] = remaining // len(others) + (1 if i < remaining % len(others) else 0)
-    set_tf_weights({"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long})
-    if "m_w_short" in st.session_state:
-        _sync_mobile_weight_sliders()
 
 
-def _sync_mobile_weight_sliders():
-    st.session_state["m_w_short"] = st.session_state.w_short
-    st.session_state["m_w_medium"] = st.session_state.w_medium
-    st.session_state["m_w_long"] = st.session_state.w_long
+def _rebalance(changed_key):
+    _rebalance_keys(["w_short", "w_medium", "w_long"], changed_key)
+    weights = _normalise_weights(_state_weights("w"))
+    st.session_state["w_short"] = weights["Short"]
+    st.session_state["w_medium"] = weights["Medium"]
+    st.session_state["w_long"] = weights["Long"]
+    _persist_config()
 
 
 def _rebalance_mobile(changed_key):
-    keys = ["m_w_short", "m_w_medium", "m_w_long"]
-    others = [k for k in keys if k != changed_key]
-    new_val = st.session_state[changed_key]
-    remaining = 100 - new_val
-    other_sum = sum(st.session_state[k] for k in others)
-    if other_sum > 0:
-        for k in others:
-            st.session_state[k] = max(0, round(st.session_state[k] / other_sum * remaining))
-        diff = 100 - new_val - sum(st.session_state[k] for k in others)
-        if diff != 0:
-            st.session_state[others[0]] += diff
-    else:
-        for i, k in enumerate(others):
-            st.session_state[k] = remaining // len(others) + (1 if i < remaining % len(others) else 0)
+    _rebalance_keys(["m_w_short", "m_w_medium", "m_w_long"], changed_key)
+    weights = _normalise_weights(_state_weights("m_w"))
+    st.session_state["w_short"] = weights["Short"]
+    st.session_state["w_medium"] = weights["Medium"]
+    st.session_state["w_long"] = weights["Long"]
+    _persist_config()
 
-    st.session_state.w_short = st.session_state.m_w_short
-    st.session_state.w_medium = st.session_state.m_w_medium
-    st.session_state.w_long = st.session_state.m_w_long
-    set_tf_weights({"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long})
 
+_sync_from_shared_store(force=False)
+_watch_shared_config_updates()
+
+selected_etcs = st.sidebar.multiselect(
+    "Track ETCs (Hargreaves Lansdown)",
+    available_etcs,
+    key="selected_etcs",
+    on_change=_persist_config,
+)
+
+st.sidebar.subheader("Signal Parameters")
+fib_tolerance = st.sidebar.slider(
+    "Fibonacci proximity tolerance (%)", 0.5, 5.0, 2.0, 0.5,
+    key="fib_tolerance", on_change=_persist_config,
+)
+gs_ratio_threshold = st.sidebar.number_input(
+    "G/S Ratio threshold (favour silver above)",
+    step=0.5,
+    key="gs_ratio_threshold",
+    on_change=_persist_config,
+)
+rsi_period = st.sidebar.number_input("RSI period", step=1, key="rsi_period", on_change=_persist_config)
+ema_fast = st.sidebar.number_input("Fast EMA", step=1, key="ema_fast", on_change=_persist_config)
+ema_slow = st.sidebar.number_input("Slow EMA", step=1, key="ema_slow", on_change=_persist_config)
+sma_fast = st.sidebar.number_input("Fast SMA", step=5, key="sma_fast", on_change=_persist_config)
+sma_slow = st.sidebar.number_input("Slow SMA", step=5, key="sma_slow", on_change=_persist_config)
+whale_vol_threshold = st.sidebar.number_input(
+    "Whale volume threshold (x avg)",
+    step=0.5,
+    key="whale_vol_threshold",
+    on_change=_persist_config,
+)
+
+st.sidebar.subheader("Timeframe Weights")
 st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
 st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
 st.sidebar.slider("Long-term %", 0, 100, key="w_long", on_change=_rebalance, args=("w_long",))
 
-if "m_w_short" not in st.session_state:
-    _sync_mobile_weight_sliders()
 with st.expander("Quick Settings (Mobile)"):
-    st.caption("Use these sliders if the sidebar toggle is not visible on your phone.")
+    st.caption("These mirror shared values from cloud storage and sync across devices on refresh.")
     st.slider("Short-term %", 0, 100, key="m_w_short", on_change=_rebalance_mobile, args=("m_w_short",))
     st.slider("Medium-term %", 0, 100, key="m_w_medium", on_change=_rebalance_mobile, args=("m_w_medium",))
     st.slider("Long-term %", 0, 100, key="m_w_long", on_change=_rebalance_mobile, args=("m_w_long",))
-    if st.button("Sync from sidebar values"):
-        _sync_mobile_weight_sliders()
+    if st.button("Pull latest shared settings"):
+        _sync_from_shared_store(force=True)
         st.rerun()
 
-tf_weight_config = {"Short": st.session_state.w_short, "Medium": st.session_state.w_medium, "Long": st.session_state.w_long}
+tf_weight_config = _normalise_weights(_state_weights("w"))
 
 st.sidebar.subheader("Portfolio")
+
+
+def _save_total_pot():
+    amount = float(st.session_state["total_pot_cfg"])
+    set_total_pot(amount)
+    st.session_state["_last_total_pot_synced"] = amount
+
+
 portfolio_data = get_portfolio()
-new_pot = st.sidebar.number_input("Total investment pot (GBP)", value=portfolio_data["total_pot"], step=10_000)
-if new_pot != portfolio_data["total_pot"]:
-    set_total_pot(new_pot)
+shared_total_pot = float(portfolio_data["total_pot"])
+if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_pot_synced") != shared_total_pot:
+    st.session_state["total_pot_cfg"] = shared_total_pot
+    st.session_state["_last_total_pot_synced"] = shared_total_pot
+st.sidebar.number_input("Total investment pot (GBP)", step=10_000.0, key="total_pot_cfg", on_change=_save_total_pot)
 
 # ========================= DATA FETCH =========================
 with st.spinner("Loading market data..."):
