@@ -350,7 +350,7 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
     .ticker-tbl td.metal-label {{ font-size:1rem; width:50px; }}
 }}
 
-.signal-card {{ background:{BG_CARD}; border:1px solid {BORDER}; border-radius:8px; padding:20px; position:relative; overflow:hidden; }}
+.signal-card {{ background:{BG_CARD}; border:1px solid {BORDER}; border-radius:8px; padding:20px; position:relative; }}
 .signal-card::before {{ content:''; position:absolute; top:0; left:0; right:0; height:3px; }}
 .signal-card.strong-buy::before {{ background:{GREEN}; }}
 .signal-card.buy::before {{ background:{GREEN}; opacity:0.6; }}
@@ -375,7 +375,7 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
 .badge-wrap {{ position:relative; display:inline-block; cursor:pointer; }}
 .warning-badge {{ display:inline-block; background:rgba(239,83,80,0.15); color:{RED}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
 .improving-badge {{ display:inline-block; background:rgba(38,166,154,0.15); color:{GREEN}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
-.badge-tooltip {{ display:none; position:fixed; left:50%; transform:translateX(-50%); min-width:300px; max-height:400px; overflow-y:auto; background:#1E2128; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; font-size:0.75rem; line-height:1.5; color:{TEXT_SECONDARY}; z-index:1000; box-shadow:0 4px 16px rgba(0,0,0,0.6); white-space:normal; }}
+.badge-tooltip {{ display:none; position:absolute; bottom:calc(100% + 6px); left:0; min-width:300px; max-height:400px; overflow-y:auto; background:#1E2128; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; font-size:0.75rem; line-height:1.5; color:{TEXT_SECONDARY}; z-index:1000; box-shadow:0 4px 16px rgba(0,0,0,0.6); white-space:normal; }}
 .badge-wrap:hover .badge-tooltip {{ display:block; }}
 .conflict-badge {{ display:inline-block; background:rgba(255,179,0,0.15); color:{AMBER}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
 
@@ -424,12 +424,7 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
 
     def _inr_fmt(val):
         if val and val == val:
-            if val >= 1e7:
-                return f"\u20b9{val / 1e7:.2f} Cr/kg"
-            elif val >= 1e5:
-                return f"\u20b9{val / 1e5:.2f} L/kg"
-            else:
-                return f"\u20b9{val:,.0f}/kg"
+            return f"\u20b9{val / 1e7:.2f} Cr/kg"
         return "N/A"
 
     def _td(cls, label, price, change="", chg_cls="neutral"):
