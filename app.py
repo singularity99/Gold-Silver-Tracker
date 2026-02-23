@@ -271,16 +271,6 @@ with tab_dashboard:
             else:
                 st.caption(f"Add GROQ_API_KEY to enable AI chat for {metal_name.title()} signals.")
 
-    # ── Fibonacci Levels ──
-    for metal_name, fib_data in [("Gold", gold_fib), ("Silver", silver_fib)]:
-        with st.expander(f"{metal_name} Fibonacci Levels"):
-            for tf_name, levels in fib_data.items():
-                st.write(f"**{tf_name.replace('_', ' ').title()}**")
-                for ratio_key, value in levels.items():
-                    if ratio_key in ("swing_high", "swing_low"):
-                        continue
-                    st.write(f"  {ratio_key}: ${value:,.0f}")
-
     # ── Allocation Recommendation ──
     if gold_score and silver_score:
         st.subheader("Allocation Recommendation")
