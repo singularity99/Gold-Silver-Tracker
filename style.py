@@ -372,11 +372,13 @@ body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -a
 .sub-score-label {{ font-size:0.65rem; color:{TEXT_MUTED}; text-transform:uppercase; letter-spacing:0.3px; }}
 .sub-score-val {{ font-size:1.1rem; font-weight:700; font-family:'JetBrains Mono',monospace; margin:2px 0; }}
 .sub-score-signal {{ font-size:0.6rem; font-weight:600; text-transform:uppercase; }}
-.badge-wrap {{ position:relative; display:inline-block; cursor:pointer; }}
-.warning-badge {{ display:inline-block; background:rgba(239,83,80,0.15); color:{RED}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
-.improving-badge {{ display:inline-block; background:rgba(38,166,154,0.15); color:{GREEN}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
-.badge-tooltip {{ display:none; position:absolute; bottom:calc(100% + 6px); left:0; min-width:300px; max-height:400px; overflow-y:auto; background:#1E2128; border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; font-size:0.75rem; line-height:1.5; color:{TEXT_SECONDARY}; z-index:1000; box-shadow:0 4px 16px rgba(0,0,0,0.6); white-space:normal; }}
-.badge-wrap:hover .badge-tooltip {{ display:block; }}
+.warning-badge {{ display:inline-block; background:rgba(239,83,80,0.15); color:{RED}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; cursor:pointer; }}
+.improving-badge {{ display:inline-block; background:rgba(38,166,154,0.15); color:{GREEN}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; cursor:pointer; }}
+.badge-details {{ display:inline-block; }}
+.badge-details summary {{ list-style:none; display:inline; }}
+.badge-details summary::-webkit-details-marker {{ display:none; }}
+.badge-details[open] .badge-panel {{ display:block; }}
+.badge-panel {{ display:none; background:rgba(30,33,40,0.95); border:1px solid {BORDER}; border-radius:6px; padding:10px 12px; font-size:0.75rem; line-height:1.5; color:{TEXT_SECONDARY}; margin-top:6px; }}
 .conflict-badge {{ display:inline-block; background:rgba(255,179,0,0.15); color:{AMBER}; font-size:0.7rem; padding:2px 8px; border-radius:3px; margin-top:4px; }}
 
 .etc-grid {{ display:flex; gap:8px; flex-wrap:wrap; }}
@@ -515,12 +517,12 @@ def signal_card_html(metal, score, price_usd) -> str:
     badges = ""
     if det_count > 0:
         det_tooltip = _tooltip_lines(det_rows, RED)
-        badges += f'<span class="badge-wrap"><span class="warning-badge">{det_count} deteriorating</span><div class="badge-tooltip">{det_tooltip}</div></span> '
+        badges += f'<details class="badge-details"><summary><span class="warning-badge">{det_count} deteriorating</span></summary><div class="badge-panel">{det_tooltip}</div></details> '
     if imp_count > 0:
         imp_tooltip = _tooltip_lines(imp_rows, GREEN)
-        badges += f'<span class="badge-wrap"><span class="improving-badge">{imp_count} improving</span><div class="badge-tooltip">{imp_tooltip}</div></span>'
+        badges += f'<details class="badge-details"><summary><span class="improving-badge">{imp_count} improving</span></summary><div class="badge-panel">{imp_tooltip}</div></details>'
 
-    # Conflict badge with hover
+    # Conflict badge
     conflicts = score.get("conflicts", [])
     if conflicts:
         conflict_tooltip = ""
@@ -530,7 +532,7 @@ def signal_card_html(metal, score, price_usd) -> str:
                 f'<span style="color:{GREEN if c["vote_a"] == "bullish" else RED}">{c["ind_a"]}</span> vs '
                 f'<span style="color:{GREEN if c["vote_b"] == "bullish" else RED}">{c["ind_b"]}</span></div>'
             )
-        badges += f' <span class="badge-wrap"><span class="conflict-badge">{len(conflicts)} conflicting</span><div class="badge-tooltip">{conflict_tooltip}</div></span>'
+        badges += f' <details class="badge-details"><summary><span class="conflict-badge">{len(conflicts)} conflicting</span></summary><div class="badge-panel">{conflict_tooltip}</div></details>'
 
     return f"""
     <div class="signal-card {sig_cls}">
