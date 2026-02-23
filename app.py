@@ -113,13 +113,17 @@ with tab_dashboard:
         silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"]) if not silver_daily.empty else None
 
     # ── Signal Cards ──
-    col_gold, col_silver = st.columns(2)
-    with col_gold:
-        if gold_score:
-            st.markdown(signal_card_html("gold", gold_score, spot["gold"]["price_usd"]), unsafe_allow_html=True)
-    with col_silver:
-        if silver_score:
-            st.markdown(signal_card_html("silver", silver_score, spot["silver"]["price_usd"]), unsafe_allow_html=True)
+    cards_html = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    if gold_score:
+        cards_html += '<div style="flex:1;min-width:300px;">'
+        cards_html += signal_card_html("gold", gold_score, spot["gold"]["price_usd"])
+        cards_html += '</div>'
+    if silver_score:
+        cards_html += '<div style="flex:1;min-width:300px;">'
+        cards_html += signal_card_html("silver", silver_score, spot["silver"]["price_usd"])
+        cards_html += '</div>'
+    cards_html += '</div>'
+    st.markdown(cards_html, unsafe_allow_html=True)
 
     # ── Scoring Guide ──
     with st.expander("Scoring Guide"):
