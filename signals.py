@@ -155,11 +155,37 @@ def _direction_label(name: str, now: float, prev: float) -> str:
         return "\u2197 Improving" if inverted else "\u2198 Deteriorating"
 
 
-def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
+# Default timeframe weight targets (percentage of total)
+DEFAULT_TF_WEIGHTS = {"Short": 48, "Medium": 37, "Long": 15}
+
+
+def _rescale_indicators(tf_weights: dict) -> list:
+    """Rescale indicator weights so each timeframe sums to its target percentage."""
+    # Sum of base weights per timeframe
+    base_sums = {"Short": 0, "Medium": 0, "Long": 0}
+    for _, tf, w, _ in INDICATORS:
+        base_sums[tf] += w
+    rescaled = []
+    for name, tf, w, cg in INDICATORS:
+        if base_sums[tf] > 0:
+            new_w = w / base_sums[tf] * tf_weights[tf]
+        else:
+            new_w = 0
+        rescaled.append((name, tf, new_w, cg))
+    return rescaled
+
+
+def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
+                tf_weights: dict = None) -> dict:
     """
     Compute weighted composite signal score for a single metal.
     All 14 indicators always vote. Weighted by importance and trading horizon.
+    tf_weights: optional dict {"Short": %, "Medium": %, "Long": %} summing to 100.
     """
+    if tf_weights is None:
+        tf_weights = DEFAULT_TF_WEIGHTS
+    indicators = _rescale_indicators(tf_weights)
+
     votes = {}  # indicator_name -> (vote, detail_text)
     raw_values = _compute_raw_values(df)
 
@@ -319,15 +345,15 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
     # --- Build weighted score ---
     indicator_rows = []
     weighted_sum = 0.0
-    tf_scores = {"Short": 0.0, "Medium": 0.0, "Long": 0.0}
-    tf_weights = {"Short": 0, "Medium": 0, "Long": 0}
+    tf_sums = {"Short": 0.0, "Medium": 0.0, "Long": 0.0}
+    tf_weight_sums = {"Short": 0.0, "Medium": 0.0, "Long": 0.0}
 
-    for name, timeframe, weight, corr_group in INDICATORS:
+    for name, timeframe, weight, corr_group in indicators:
         vote, detail = votes.get(name, (0, "N/A"))
         w_score = vote * weight
         weighted_sum += w_score
-        tf_scores[timeframe] += w_score
-        tf_weights[timeframe] += weight
+        tf_sums[timeframe] += w_score
+        tf_weight_sums[timeframe] += weight
         # Direction from raw values
         if name in raw_values:
             now_val, prev_val = raw_values[name]
@@ -350,8 +376,8 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
     # Per-timeframe sub-scores (normalized to -1..+1)
     tf_normalized = {}
     for tf in ("Short", "Medium", "Long"):
-        if tf_weights[tf] > 0:
-            tf_normalized[tf] = tf_scores[tf] / tf_weights[tf]
+        if tf_weight_sums[tf] > 0:
+            tf_normalized[tf] = tf_sums[tf] / tf_weight_sums[tf]
         else:
             tf_normalized[tf] = 0.0
 
@@ -397,9 +423,9 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
         signal = SIGNAL_NEUTRAL
         strength = STRENGTH_WEAK
 
-    bullish = sum(1 for name, _, _, _ in INDICATORS if votes.get(name, (0,))[0] > 0)
-    bearish = sum(1 for name, _, _, _ in INDICATORS if votes.get(name, (0,))[0] < 0)
-    neutral = sum(1 for name, _, _, _ in INDICATORS if votes.get(name, (0,))[0] == 0)
+    bullish = sum(1 for name, _, _, _ in indicators if votes.get(name, (0,))[0] > 0)
+    bearish = sum(1 for name, _, _, _ in indicators if votes.get(name, (0,))[0] < 0)
+    neutral = sum(1 for name, _, _, _ in indicators if votes.get(name, (0,))[0] == 0)
 
     return {
         "signal": signal,
@@ -408,10 +434,10 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float) -> dict:
         "bullish_votes": bullish,
         "bearish_votes": bearish,
         "neutral_votes": neutral,
-        "total_indicators": len(INDICATORS),
+        "total_indicators": len(indicators),
         "indicator_table": indicator_rows,
         "timeframe_scores": tf_normalized,
-        "timeframe_weights": {"Short": 48, "Medium": 37, "Long": 15},
+        "timeframe_weights": tf_weights,
         "conflicts": conflicts,
     }
 

@@ -54,6 +54,15 @@ sma_fast = st.sidebar.number_input("Fast SMA", value=20, step=5)
 sma_slow = st.sidebar.number_input("Slow SMA", value=50, step=5)
 whale_vol_threshold = st.sidebar.number_input("Whale volume threshold (x avg)", value=2.0, step=0.5)
 
+st.sidebar.subheader("Timeframe Weights")
+w_short = st.sidebar.slider("Short-term (days-weeks) %", 0, 100, 48, 1)
+w_medium = st.sidebar.slider("Medium-term (weeks-months) %", 0, 100, 37, 1)
+w_long = st.sidebar.slider("Long-term (months-years) %", 0, 100, 15, 1)
+w_total = w_short + w_medium + w_long
+if w_total != 100:
+    st.sidebar.warning(f"Weights sum to {w_total}% (must be 100)")
+tf_weight_config = {"Short": w_short, "Medium": w_medium, "Long": w_long}
+
 st.sidebar.subheader("Portfolio")
 portfolio_data = get_portfolio()
 new_pot = st.sidebar.number_input("Total investment pot (GBP)", value=portfolio_data["total_pot"], step=10_000)
@@ -109,8 +118,8 @@ with tab_dashboard:
         gold_daily = gold_tf["long_term"]
         silver_daily = silver_tf["long_term"]
 
-        gold_score = score_metal(gold_daily, gold_fib, spot["gold"]["price_usd"]) if not gold_daily.empty else None
-        silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"]) if not silver_daily.empty else None
+        gold_score = score_metal(gold_daily, gold_fib, spot["gold"]["price_usd"], tf_weight_config) if not gold_daily.empty else None
+        silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"], tf_weight_config) if not silver_daily.empty else None
 
     # ── Signal Cards ──
     cards_html = '<div class="cards-row">'
