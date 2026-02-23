@@ -49,10 +49,7 @@ def fetch_spot_prices():
     for metal in ("gold", "silver"):
         usd = result[metal]["price_usd"]
         result[metal]["price_gbp"] = usd / gbp_usd if not np.isnan(usd) else np.nan
-        if metal == "gold":
-            result[metal]["price_inr"] = usd * usd_inr if not np.isnan(usd) else np.nan  # per oz
-        else:
-            result[metal]["price_inr"] = usd * TROY_OZ_PER_KG * usd_inr if not np.isnan(usd) else np.nan  # per kg
+        result[metal]["price_inr_per_kg"] = usd * TROY_OZ_PER_KG * usd_inr if not np.isnan(usd) else np.nan
 
     if not np.isnan(result["gold"]["price_usd"]) and not np.isnan(result["silver"]["price_usd"]):
         result["ratio"] = result["gold"]["price_usd"] / result["silver"]["price_usd"]

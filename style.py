@@ -450,7 +450,7 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
     if silver_gbp and silver_gbp == silver_gbp:
         items.append(("ticker-silver", "Silver GBP", f"\u00a3{silver_gbp:.2f}", "", "neutral"))
     if gold_inr and gold_inr == gold_inr:
-        items.append(("ticker-gold", "Gold INR", _inr_fmt(gold_inr, "oz"), "", "neutral"))
+        items.append(("ticker-gold", "Gold INR", _inr_fmt(gold_inr, "kg"), "", "neutral"))
     if silver_inr and silver_inr == silver_inr:
         items.append(("ticker-silver", "Silver INR", _inr_fmt(silver_inr, "kg"), "", "neutral"))
     items.append(("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A", "", "neutral"))
