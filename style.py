@@ -331,24 +331,20 @@ h1, h2, h3 {{
 COMPONENT_CSS = f"""
 <style>
 body {{ margin: 0; padding: 0; background: transparent; font-family: 'Inter', -apple-system, sans-serif; color: {TEXT_PRIMARY}; }}
-.ticker-grid {{ display:flex; gap:0; background:linear-gradient(180deg,#1E2128 0%,{BG_CARD} 100%); border:1px solid {BORDER}; border-radius:6px; overflow:hidden; }}
-.ticker-left {{ flex:3; min-width:0; }}
-.ticker-right {{ flex:2; border-left:2px solid {BORDER}; }}
-.ticker-tbl {{ width:100%; border-collapse:collapse; }}
+.ticker-tbl {{ width:100%; border-collapse:collapse; background:linear-gradient(180deg,#1E2128 0%,{BG_CARD} 100%); border:1px solid {BORDER}; border-radius:6px; overflow:hidden; }}
 .ticker-tbl td {{ padding:8px 14px; text-align:center; vertical-align:middle; border-right:1px solid {BORDER}; border-bottom:1px solid {BORDER}; }}
 .ticker-tbl tr:last-child td {{ border-bottom:none; }}
 .ticker-tbl td:last-child {{ border-right:none; }}
 .ticker-tbl td.metal-label {{ font-size:1.4rem; font-weight:800; letter-spacing:1px; width:80px; }}
 .ticker-tbl td.metal-label.gold {{ color:{GOLD}; }}
 .ticker-tbl td.metal-label.silver {{ color:{SILVER}; }}
+.ticker-tbl td.divider {{ border-right:2px solid {BORDER}; }}
 .ticker-label {{ font-size:0.65rem; color:{TEXT_SECONDARY}; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:1px; }}
 .ticker-price {{ font-size:1.2rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:{TEXT_PRIMARY}; }}
 .ticker-change {{ font-size:0.7rem; font-family:'JetBrains Mono',monospace; margin-top:1px; }}
 .ticker-change.up {{ color:{GREEN}; }} .ticker-change.down {{ color:{RED}; }} .ticker-change.neutral {{ color:{TEXT_MUTED}; }}
 .ticker-gold .ticker-price {{ color:{GOLD}; }} .ticker-silver .ticker-price {{ color:{SILVER}; }}
 @media (max-width: 768px) {{
-    .ticker-grid {{ flex-direction:column; }}
-    .ticker-right {{ border-left:none; border-top:2px solid {BORDER}; }}
     .ticker-tbl td {{ padding:6px 8px; }}
     .ticker-price {{ font-size:1rem; }}
     .ticker-tbl td.metal-label {{ font-size:1rem; width:50px; }}
@@ -447,42 +443,31 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
     gold_chg_cls = _chg_class(gold_chg)
     silver_chg_str = f"{silver_chg:+.1f}%" if silver_chg == silver_chg else ""
     silver_chg_cls = _chg_class(silver_chg)
-
-    # Left table: metals
-    left = '<table class="ticker-tbl">'
-    left += '<tr>'
-    left += '<td class="metal-label gold">GOLD</td>'
-    left += _td("ticker-gold", "USD/toz", f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A", gold_chg_str, gold_chg_cls)
-    left += _td("ticker-gold", "GBP/toz", f"\u00a3{gold_gbp:,.0f}" if gold_gbp and gold_gbp == gold_gbp else "N/A", gold_chg_str, gold_chg_cls)
-    left += _td("ticker-gold", "INR/kg", _inr_fmt(gold_inr) if gold_inr and gold_inr == gold_inr else "N/A", gold_chg_str, gold_chg_cls)
-    left += '</tr>'
-    left += '<tr>'
-    left += '<td class="metal-label silver">SILVER</td>'
-    left += _td("ticker-silver", "USD/toz", f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A", silver_chg_str, silver_chg_cls)
-    left += _td("ticker-silver", "GBP/toz", f"\u00a3{silver_gbp:.2f}" if silver_gbp and silver_gbp == silver_gbp else "N/A", silver_chg_str, silver_chg_cls)
-    left += _td("ticker-silver", "INR/kg", _inr_fmt(silver_inr) if silver_inr and silver_inr == silver_inr else "N/A", silver_chg_str, silver_chg_cls)
-    left += '</tr>'
-    left += '</table>'
-
-    # Right table: ratios & FX
     usd_inr_val = usd_inr if usd_inr and usd_inr == usd_inr else None
     gbp_inr_val = (gbp_usd * usd_inr) if usd_inr_val and gbp_usd == gbp_usd else None
 
-    right = '<table class="ticker-tbl">'
-    right += '<tr>'
-    right += _td("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A")
-    right += _td("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A")
-    right += '</tr>'
-    right += '<tr>'
-    right += _td("", "USD/INR", f"\u20b9{usd_inr_val:.2f}" if usd_inr_val else "N/A")
-    right += _td("", "GBP/INR", f"\u20b9{gbp_inr_val:.2f}" if gbp_inr_val else "N/A")
-    right += '</tr>'
-    right += '</table>'
-
-    return f"""<div class="ticker-grid">
-        <div class="ticker-left">{left}</div>
-        <div class="ticker-right">{right}</div>
-    </div>"""
+    # Single table: metals on left, ratios/FX on right, rows aligned
+    html = '<table class="ticker-tbl">'
+    # Row 1: Gold + G/S Ratio + GBP/USD
+    html += '<tr>'
+    html += '<td class="metal-label gold">GOLD</td>'
+    html += _td("ticker-gold", "USD/toz", f"${gold_usd:,.0f}" if gold_usd == gold_usd else "N/A", gold_chg_str, gold_chg_cls)
+    html += _td("ticker-gold", "GBP/toz", f"\u00a3{gold_gbp:,.0f}" if gold_gbp and gold_gbp == gold_gbp else "N/A", gold_chg_str, gold_chg_cls)
+    html += _td("ticker-gold divider", "INR/kg", _inr_fmt(gold_inr) if gold_inr and gold_inr == gold_inr else "N/A", gold_chg_str, gold_chg_cls)
+    html += _td("", "G/S Ratio", f"{gs_ratio:.1f}:1" if gs_ratio == gs_ratio else "N/A")
+    html += _td("", "GBP/USD", f"{gbp_usd:.4f}" if gbp_usd == gbp_usd else "N/A")
+    html += '</tr>'
+    # Row 2: Silver + USD/INR + GBP/INR
+    html += '<tr>'
+    html += '<td class="metal-label silver">SILVER</td>'
+    html += _td("ticker-silver", "USD/toz", f"${silver_usd:.2f}" if silver_usd == silver_usd else "N/A", silver_chg_str, silver_chg_cls)
+    html += _td("ticker-silver", "GBP/toz", f"\u00a3{silver_gbp:.2f}" if silver_gbp and silver_gbp == silver_gbp else "N/A", silver_chg_str, silver_chg_cls)
+    html += _td("ticker-silver divider", "INR/kg", _inr_fmt(silver_inr) if silver_inr and silver_inr == silver_inr else "N/A", silver_chg_str, silver_chg_cls)
+    html += _td("", "USD/INR", f"\u20b9{usd_inr_val:.2f}" if usd_inr_val else "N/A")
+    html += _td("", "GBP/INR", f"\u20b9{gbp_inr_val:.2f}" if gbp_inr_val else "N/A")
+    html += '</tr>'
+    html += '</table>'
+    return html
 
 
 def signal_card_html(metal, score, price_usd) -> str:
