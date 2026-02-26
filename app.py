@@ -681,6 +681,29 @@ with tab_simulator:
         ],
         format_func=lambda x: x[1],
     )[0]
+    with st.expander("Overlays (optional)"):
+        use_regime = st.checkbox("Regime filter (20d vol gate)", value=True)
+        low_vol = st.number_input("Low-vol threshold (daily sigma)", value=0.03, format="%.3f")
+        high_vol = st.number_input("High-vol breakout threshold (daily sigma)", value=0.06, format="%.3f")
+        use_vol = st.checkbox("Hourly volume filter (intraday)", value=True)
+        vol_pct = st.slider("Min volume percentile (last 30d)", 0, 100, 40)
+        use_adx = st.checkbox("ADX trend-strength gate", value=True)
+        adx_th = st.number_input("ADX threshold", value=20, step=1)
+        use_atr = st.checkbox("ATR stop / take-profit", value=True)
+        atr_stop = st.number_input("ATR stop multiplier", value=2.0, step=0.1, format="%.1f")
+        atr_tp = st.number_input("ATR take-profit multiplier", value=3.0, step=0.1, format="%.1f")
+    overlays = {
+        "regime_filter": use_regime,
+        "low_vol_thresh": low_vol,
+        "high_vol_thresh": high_vol,
+        "volume_filter": use_vol,
+        "vol_percentile": vol_pct,
+        "adx_filter": use_adx,
+        "adx_threshold": adx_th,
+        "atr_overlays": use_atr,
+        "atr_stop_mult": atr_stop,
+        "atr_tp_mult": atr_tp,
+    }
     with st.expander("What do these strategies mean?", expanded=False):
         st.markdown("""
         - **Baseline (per-signal targets):** Uses the raw signal mapping (Strong Buy 60%, Buy 30%, Sell/Strong Sell 30%, Neutral 0%) at each checkpoint.
@@ -691,7 +714,12 @@ with tab_simulator:
 
     if run_sim:
         with st.spinner("Running backtests (morning vs end-of-day)..."):
-            sim_results = run_simulations(start_date=datetime.combine(sim_start, datetime.min.time()), tf_weights=tf_weight_config, strategy=strategy)
+            sim_results = run_simulations(
+                start_date=datetime.combine(sim_start, datetime.min.time()),
+                tf_weights=tf_weight_config,
+                strategy=strategy,
+                overlays=overlays,
+            )
         st.session_state["sim_results"] = sim_results
 
     sim_results = st.session_state.get("sim_results")
