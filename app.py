@@ -672,11 +672,20 @@ with tab_news:
 with tab_simulator:
     st.subheader("Historical Signal Simulator")
     sim_start = st.date_input("Backtest start date", value=date(2026, 1, 1))
+    strategy = st.selectbox(
+        "Strategy",
+        options=[
+            ("baseline", "Baseline (per-signal targets)"),
+            ("agree", "Short+Medium agree only"),
+            ("hysteresis", "Composite hysteresis bands"),
+        ],
+        format_func=lambda x: x[1],
+    )[0]
     run_sim = st.button("Run backtest", key="run_simulator")
 
     if run_sim:
         with st.spinner("Running backtests (morning vs end-of-day)..."):
-            sim_results = run_simulations(start_date=datetime.combine(sim_start, datetime.min.time()), tf_weights=tf_weight_config)
+            sim_results = run_simulations(start_date=datetime.combine(sim_start, datetime.min.time()), tf_weights=tf_weight_config, strategy=strategy)
         st.session_state["sim_results"] = sim_results
 
     sim_results = st.session_state.get("sim_results")

@@ -107,6 +107,44 @@ def _compute_signal(metal: str, daily_df: pd.DataFrame, hourly_df: pd.DataFrame,
     return score.get("signal", SIGNAL_NEUTRAL), score
 
 
+def _target_baseline(signal: str) -> float:
+    return _signal_to_weight(signal)
+
+
+def _target_agree(score: dict) -> float:
+    tf = score.get("timeframe_scores", {})
+    s_short = tf.get("Short", 0.0)
+    s_med = tf.get("Medium", 0.0)
+    if s_short >= 0.4 and s_med >= 0.4:
+        return TARGET_ALLOC[SIGNAL_STRONG_BUY]
+    if s_short >= 0.2 and s_med >= 0.2:
+        return TARGET_ALLOC[SIGNAL_BUY]
+    if s_short <= -0.2 and s_med <= -0.2:
+        return TARGET_ALLOC[SIGNAL_SELL]
+    return 0.0
+
+
+def _target_hysteresis(score: dict, last_target: float) -> float:
+    comp = score.get("composite_score", 0.0)
+    enter_hi = 0.2
+    strong_hi = 0.4
+    exit_lo = -0.1
+    if last_target > 0:  # currently invested
+        if comp < exit_lo:
+            return 0.0
+        if comp >= strong_hi:
+            return TARGET_ALLOC[SIGNAL_STRONG_BUY]
+        if comp >= enter_hi:
+            return TARGET_ALLOC[SIGNAL_BUY]
+        return last_target  # hold
+    else:  # flat
+        if comp >= strong_hi:
+            return TARGET_ALLOC[SIGNAL_STRONG_BUY]
+        if comp >= enter_hi:
+            return TARGET_ALLOC[SIGNAL_BUY]
+        return 0.0
+
+
 def _rebalance(positions: dict, cash_gbp: float, targets: dict, prices_gbp: dict, commission: float) -> tuple[dict, float, list]:
     trades = []
     equity = cash_gbp + sum(positions[m] * prices_gbp[m] for m in positions)
@@ -143,7 +181,7 @@ def _rebalance(positions: dict, cash_gbp: float, targets: dict, prices_gbp: dict
 
 def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
              tf_weights: dict | None = None, commission_gbp: float = 10.0,
-             trade_scenarios: dict = None) -> dict:
+             trade_scenarios: dict = None, strategy: str = "baseline") -> dict:
     tf_weights = tf_weights or DEFAULT_TF_WEIGHTS
     trade_scenarios = trade_scenarios or TRADE_SCENARIOS
     start_buffer = start - timedelta(days=400)
@@ -155,6 +193,8 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
     fx_hourly = _to_london(_fetch_history(GBPUSD_TICKER, start, "1h"))
 
     results = {}
+    scenario_states = {scenario: {"gold": {"last_target": 0.0}, "silver": {"last_target": 0.0}} for scenario in trade_scenarios}
+
     for scenario, cfg in trade_scenarios.items():
         hour = cfg.get("hour", "all")
         scenario_tf_weights = cfg.get("tf_weights", tf_weights)
@@ -183,11 +223,22 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
             prev_idx = hourly_index[hourly_index.get_loc(ts) - 1] if hourly_index.get_loc(ts) > 0 else None
             if prev_idx is None:
                 continue
-            gold_sig, _ = _compute_signal("gold", gold_daily, gold_hourly, prev_idx, scenario_tf_weights)
-            silver_sig, _ = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, scenario_tf_weights)
+            gold_sig, gold_score = _compute_signal("gold", gold_daily, gold_hourly, prev_idx, scenario_tf_weights)
+            silver_sig, silver_score = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, scenario_tf_weights)
+
+            def _pick_target(metal_signal: str, metal_score: dict, metal: str) -> float:
+                if strategy == "agree":
+                    return _target_agree(metal_score)
+                if strategy == "hysteresis":
+                    last_t = scenario_states[scenario][metal]["last_target"]
+                    tgt = _target_hysteresis(metal_score, last_t)
+                    scenario_states[scenario][metal]["last_target"] = tgt
+                    return tgt
+                return _target_baseline(metal_signal)
+
             targets = {
-                "gold": _signal_to_weight(gold_sig),
-                "silver": _signal_to_weight(silver_sig),
+                "gold": _pick_target(gold_sig, gold_score, "gold"),
+                "silver": _pick_target(silver_sig, silver_score, "silver"),
             }
             positions, cash_gbp, trades = _rebalance(positions, cash_gbp, targets, prices_gbp, commission_gbp)
             for tr in trades:
@@ -229,5 +280,5 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
     return results
 
 
-def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | None = None) -> dict:
-    return simulate(start=start_date, tf_weights=tf_weights or DEFAULT_TF_WEIGHTS)
+def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | None = None, strategy: str = "baseline") -> dict:
+    return simulate(start=start_date, tf_weights=tf_weights or DEFAULT_TF_WEIGHTS, strategy=strategy)
