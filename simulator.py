@@ -17,9 +17,10 @@ from signals import (
 
 GBPUSD_TICKER = "GBPUSD=X"
 START_DEFAULT = datetime(2026, 1, 1)
-TRADE_WINDOWS = {
-    "morning": 10,  # 09–10 London bar close
-    "end_of_day": 17,  # 16–17 London bar close
+TRADE_SCENARIOS = {
+    "morning": {"hour": 10, "tf_weights": DEFAULT_TF_WEIGHTS},  # 09–10 London bar
+    "end_of_day": {"hour": 17, "tf_weights": DEFAULT_TF_WEIGHTS},  # 16–17 London bar
+    "intraday_short": {"hour": "all", "tf_weights": {"Short": 100, "Medium": 0, "Long": 0}},
 }
 TARGET_ALLOC = {
     SIGNAL_STRONG_BUY: 0.60,
@@ -142,9 +143,9 @@ def _rebalance(positions: dict, cash_gbp: float, targets: dict, prices_gbp: dict
 
 def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
              tf_weights: dict | None = None, commission_gbp: float = 10.0,
-             trade_hours: dict = None) -> dict:
+             trade_scenarios: dict = None) -> dict:
     tf_weights = tf_weights or DEFAULT_TF_WEIGHTS
-    trade_hours = trade_hours or TRADE_WINDOWS
+    trade_scenarios = trade_scenarios or TRADE_SCENARIOS
     start_buffer = start - timedelta(days=400)
 
     gold_daily = _to_london(_fetch_history("GC=F", start_buffer, "1d"))
@@ -154,7 +155,9 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
     fx_hourly = _to_london(_fetch_history(GBPUSD_TICKER, start, "1h"))
 
     results = {}
-    for scenario, hour in trade_hours.items():
+    for scenario, cfg in trade_scenarios.items():
+        hour = cfg.get("hour", "all")
+        scenario_tf_weights = cfg.get("tf_weights", tf_weights)
         positions = {"gold": 0.0, "silver": 0.0}
         cash_gbp = initial_cash
         equity_records = []
@@ -175,13 +178,13 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
             equity = cash_gbp + sum(positions[m] * prices_gbp[m] for m in positions)
             equity_records.append((ts, equity, equity * gbp_usd))
 
-            if ts.hour != hour:
+            if hour != "all" and ts.hour != hour:
                 continue
             prev_idx = hourly_index[hourly_index.get_loc(ts) - 1] if hourly_index.get_loc(ts) > 0 else None
             if prev_idx is None:
                 continue
-            gold_sig, _ = _compute_signal("gold", gold_daily, gold_hourly, prev_idx, tf_weights)
-            silver_sig, _ = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, tf_weights)
+            gold_sig, _ = _compute_signal("gold", gold_daily, gold_hourly, prev_idx, scenario_tf_weights)
+            silver_sig, _ = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, scenario_tf_weights)
             targets = {
                 "gold": _signal_to_weight(gold_sig),
                 "silver": _signal_to_weight(silver_sig),
