@@ -681,6 +681,12 @@ with tab_simulator:
         ],
         format_func=lambda x: x[1],
     )[0]
+    with st.expander("What do these strategies mean?", expanded=False):
+        st.markdown("""
+        - **Baseline (per-signal targets):** Uses the raw signal mapping (Strong Buy 60%, Buy 30%, Sell/Strong Sell 30%, Neutral 0%) at each checkpoint.
+        - **Short+Medium agree only:** Requires both Short and Medium scores to align (>= +0.2 to enter; >= +0.4 for Strong). If they don’t agree, target is 0% (flat). Reduces whipsaw.
+        - **Composite hysteresis bands:** Uses composite score with bands to avoid flip-flop. Enter above +0.2 (Strong above +0.4), exit below -0.1. Holds when inside the band.
+        """)
     run_sim = st.button("Run backtest", key="run_simulator")
 
     if run_sim:
