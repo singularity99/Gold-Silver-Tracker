@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, date
 
 from data import (
     fetch_spot_prices, fetch_etc_prices, fetch_historical,
@@ -29,6 +29,7 @@ from style import (
     news_card_html, port_stat_html, render_component,
     analysis_card_html,
 )
+from simulator import run_simulations
 
 st.set_page_config(
     page_title="Gold & Silver Strategy Monitor",
@@ -356,8 +357,8 @@ if selected_etcs:
     st.html(render_component(etc_html))
 
 # ========================= MAIN TABS =========================
-tab_dashboard, tab_charts, tab_portfolio, tab_news = st.tabs([
-    "Dashboard", "Charts", "Portfolio", "News"
+tab_dashboard, tab_charts, tab_portfolio, tab_news, tab_simulator = st.tabs([
+    "Dashboard", "Charts", "Portfolio", "News", "Simulator"
 ])
 
 # ─────────────────────── DASHBOARD TAB ───────────────────────
@@ -666,6 +667,50 @@ with tab_news:
             ))
     else:
         st.write("No catalyst headlines found right now.")
+
+# ─────────────────────── SIMULATOR TAB ───────────────────────
+with tab_simulator:
+    st.subheader("Historical Signal Simulator")
+    sim_start = st.date_input("Backtest start date", value=date(2026, 1, 1))
+    run_sim = st.button("Run backtest", key="run_simulator")
+
+    if run_sim:
+        with st.spinner("Running backtests (morning vs end-of-day)..."):
+            sim_results = run_simulations(start_date=datetime.combine(sim_start, datetime.min.time()), tf_weights=tf_weight_config)
+        st.session_state["sim_results"] = sim_results
+
+    sim_results = st.session_state.get("sim_results")
+    if sim_results:
+        metrics_cols = st.columns(len(sim_results))
+        for col, (name, res) in zip(metrics_cols, sim_results.items()):
+            m = res["metrics"]
+            col.markdown(f"**{name.replace('_', ' ').title()}**")
+            col.metric("Final Equity (GBP)", f"£{m['final_equity_gbp']:,.0f}", delta=f"£{m['pnl_gbp_abs']:,.0f} ({m['pnl_gbp_pct']*100:.1f}%)")
+            col.metric("Final Equity (USD)", f"${m['final_equity_usd']:,.0f}", delta=f"${m['pnl_usd_abs']:,.0f} ({m['pnl_usd_pct']*100:.1f}%)")
+            col.caption(f"CAGR {m['CAGR']*100:.1f}% | Sharpe {m['Sharpe']:.2f} | Max DD {m['Max Drawdown']*100:.1f}%")
+
+        eq_df = pd.DataFrame({f"{name} (GBP)": res["equity"]["equity_gbp"] for name, res in sim_results.items()})
+        st.line_chart(eq_df, height=260)
+        end_caption = " | ".join([
+            f"{name.replace('_',' ').title()}: £{res['metrics']['final_equity_gbp']:,.0f} ({res['metrics']['pnl_gbp_pct']*100:.1f}%)"
+            for name, res in sim_results.items()
+        ])
+        st.caption(f"Ending equity & P&L vs £{next(iter(sim_results.values()))['metrics']['initial_cash']:,.0f}: {end_caption}")
+
+        sel = st.selectbox("View trades for", list(sim_results.keys()))
+        trades = sim_results[sel]["trades"]
+        if not trades.empty:
+            trades_display = trades.copy()
+            trades_display["timestamp"] = trades_display["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+            st.dataframe(
+                trades_display[[
+                    "timestamp", "metal", "signal", "target_weight", "units_delta", "price_gbp",
+                    "notional_gbp", "commission_gbp", "equity_gbp_after", "equity_usd_after", "pnl_gbp_pct"
+                ]],
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.write("No trades generated for this window.")
 
 # ========================= FOOTER =========================
 st.divider()
