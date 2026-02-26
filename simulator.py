@@ -31,14 +31,14 @@ TARGET_ALLOC = {
 }
 
 DEFAULT_OVERLAYS = {
-    "regime_filter": True,
+    "regime_filter": False,
     "low_vol_thresh": 0.03,  # 3% daily vol
     "high_vol_thresh": 0.06,  # 6% daily vol (breakout regime)
-    "volume_filter": True,
+    "volume_filter": False,
     "vol_percentile": 40,  # require current hourly vol >= 40th percentile of lookback
-    "adx_filter": True,
+    "adx_filter": False,
     "adx_threshold": 20,
-    "atr_overlays": True,
+    "atr_overlays": False,
     "atr_stop_mult": 2.0,
     "atr_tp_mult": 3.0,
 }

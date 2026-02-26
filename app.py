@@ -682,14 +682,14 @@ with tab_simulator:
         format_func=lambda x: x[1],
     )[0]
     with st.expander("Overlays (optional)"):
-        use_regime = st.checkbox("Regime filter (20d vol gate)", value=True)
+        use_regime = st.checkbox("Regime filter (20d vol gate)", value=False)
         low_vol = st.number_input("Low-vol threshold (daily sigma)", value=0.03, format="%.3f")
         high_vol = st.number_input("High-vol breakout threshold (daily sigma)", value=0.06, format="%.3f")
-        use_vol = st.checkbox("Hourly volume filter (intraday)", value=True)
+        use_vol = st.checkbox("Hourly volume filter (intraday)", value=False)
         vol_pct = st.slider("Min volume percentile (last 30d)", 0, 100, 40)
-        use_adx = st.checkbox("ADX trend-strength gate", value=True)
+        use_adx = st.checkbox("ADX trend-strength gate", value=False)
         adx_th = st.number_input("ADX threshold", value=20, step=1)
-        use_atr = st.checkbox("ATR stop / take-profit", value=True)
+        use_atr = st.checkbox("ATR stop / take-profit", value=False)
         atr_stop = st.number_input("ATR stop multiplier", value=2.0, step=0.1, format="%.1f")
         atr_tp = st.number_input("ATR take-profit multiplier", value=3.0, step=0.1, format="%.1f")
     overlays = {
