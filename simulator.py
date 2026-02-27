@@ -233,9 +233,8 @@ def _rebalance(positions: dict, cash_gbp: float, targets: dict, prices_gbp: dict
     return positions, cash_gbp, trades
 
 
-def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights_key: tuple,
+def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights: dict,
                         commission_gbp: float, trade_scenarios: dict, strategy: str) -> dict:
-    tf_weights = tf_weights or DEFAULT_TF_WEIGHTS
     trade_scenarios = trade_scenarios or TRADE_SCENARIOS
     start_buffer = start - timedelta(days=400)
 
@@ -377,10 +376,11 @@ def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights_key: t
 
 @lru_cache(maxsize=64)
 def simulate_cached(start_iso: str, initial_cash: float, tf_weights_key: tuple, strategy: str) -> dict:
+    tf_dict = {"Short": tf_weights_key[0], "Medium": tf_weights_key[1], "Long": tf_weights_key[2]}
     return _simulate_with_cache(
         start=datetime.fromisoformat(start_iso),
         initial_cash=initial_cash,
-        tf_weights_key=tf_weights_key,
+        tf_weights=tf_dict,
         commission_gbp=10.0,
         trade_scenarios=TRADE_SCENARIOS,
         strategy=strategy,
@@ -394,7 +394,7 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
     tf_key = (tf_weights.get("Short", 48), tf_weights.get("Medium", 37), tf_weights.get("Long", 15))
     if trade_scenarios is None and commission_gbp == 10.0:
         return simulate_cached(start.isoformat(), initial_cash, tf_key, strategy)
-    return _simulate_with_cache(start, initial_cash, tf_key, commission_gbp, trade_scenarios or TRADE_SCENARIOS, strategy)
+    return _simulate_with_cache(start, initial_cash, tf_weights, commission_gbp, trade_scenarios or TRADE_SCENARIOS, strategy)
 
 
 def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | None = None, strategy: str = "baseline") -> dict:
