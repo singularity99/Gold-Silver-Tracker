@@ -343,20 +343,6 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
                 tr["pnl_gbp_pct"] = tr["pnl_gbp_abs"] / initial_cash if initial_cash else 0.0
                 trade_records.append(tr)
 
-            # Track entries for ATR overlay
-            if overlays.get("atr_overlays", False):
-                for tr in trades:
-                    metal = tr["metal"]
-                    st_m = scenario_states[scenario][metal]
-                    short_df = (gold_hourly if metal == "gold" else silver_hourly)
-                    atr_val = _atr(short_df[short_df.index <= ts].tail(200))
-                    if tr["units_delta"] > 0:  # buy adds/opens
-                        st_m["entry_price"] = tr["price_gbp"]
-                        st_m["entry_atr"] = atr_val
-                    if positions[metal] <= 0:
-                        st_m["entry_price"] = None
-                        st_m["entry_atr"] = None
-
         eq_df = pd.DataFrame(equity_records, columns=["ts", "equity_gbp", "equity_usd"])
         eq_df = eq_df.set_index("ts")
         trades_df = pd.DataFrame(trade_records)
