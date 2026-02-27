@@ -321,9 +321,19 @@ if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_
 st.sidebar.number_input("Total investment pot (GBP)", step=10_000.0, key="total_pot_cfg", on_change=_save_total_pot)
 
 # ========================= DATA FETCH =========================
+@st.cache_data(show_spinner=False)
+def _fetch_spot_cached():
+    return fetch_spot_prices()
+
+
+@st.cache_data(show_spinner=False)
+def _fetch_etc_cached(tickers: tuple[str, ...]):
+    return fetch_etc_prices(list(tickers)) if tickers else {}
+
+
 with st.spinner("Loading market data..."):
-    spot = fetch_spot_prices()
-    etc_prices = fetch_etc_prices(selected_etcs) if selected_etcs else {}
+    spot = _fetch_spot_cached()
+    etc_prices = _fetch_etc_cached(tuple(selected_etcs)) if selected_etcs else {}
 
 # ========================= PRICE TICKER STRIP =========================
 ticker_html = ticker_strip_html(
