@@ -789,7 +789,13 @@ with tab_simulator:
                 err_rows.append(f"{strat}: unexpected result type")
                 continue
             for scen, res in scenarios.items():
-                if not isinstance(res, dict) or "metrics" not in res:
+                if not isinstance(res, dict):
+                    err_rows.append(f"{strat}/{scen}: unexpected type")
+                    continue
+                if "error" in res:
+                    err_rows.append(f"{strat}/{scen}: {res['error']}")
+                    continue
+                if "metrics" not in res:
                     err_rows.append(f"{strat}/{scen}: missing metrics")
                     continue
                 m = res["metrics"]

@@ -348,14 +348,22 @@ def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights: dict,
                 tr["pnl_gbp_pct"] = tr["pnl_gbp_abs"] / initial_cash if initial_cash else 0.0
                 trade_records.append(tr)
 
+        if len(equity_records) == 0:
+            results[scenario] = {"error": "no data for scenario"}
+            continue
+
         eq_df = pd.DataFrame(equity_records, columns=["ts", "equity_gbp", "equity_usd"])
         eq_df = eq_df.set_index("ts")
         trades_df = pd.DataFrame(trade_records)
+        if eq_df.empty:
+            results[scenario] = {"error": "no equity series"}
+            continue
         metrics = _perf_stats(eq_df["equity_gbp"])
-        final_eq_gbp = eq_df["equity_gbp"].iloc[-1] if not eq_df.empty else initial_cash
-        final_eq_usd = eq_df["equity_usd"].iloc[-1] if not eq_df.empty else initial_cash
+        final_eq_gbp = eq_df["equity_gbp"].iloc[-1]
+        final_eq_usd = eq_df["equity_usd"].iloc[-1]
         pnl_gbp_abs = final_eq_gbp - initial_cash
-        pnl_usd_abs = final_eq_usd - (initial_cash * (eq_df["equity_usd"].iloc[0] / eq_df["equity_gbp"].iloc[0]) if not eq_df.empty and eq_df["equity_gbp"].iloc[0] else initial_cash)
+        base_usd = eq_df["equity_usd"].iloc[0] if eq_df["equity_gbp"].iloc[0] else initial_cash
+        pnl_usd_abs = final_eq_usd - base_usd
         metrics.update({
             "final_equity_gbp": float(final_eq_gbp),
             "final_equity_usd": float(final_eq_usd),
