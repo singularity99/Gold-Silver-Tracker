@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data import (
     fetch_spot_prices, fetch_etc_prices, fetch_historical,
@@ -721,17 +722,20 @@ with tab_simulator:
 
     if run_all:
         all_results = {}
-        strat_options = [s[0] for s in (
-            ("baseline", ""), ("agree", ""), ("hysteresis", ""), ("banded", ""),
-            ("confirm", ""), ("cooldown", ""), ("time_filter", ""), ("decay", ""),
-        )]
+        strat_options = ["baseline", "agree", "hysteresis", "banded", "confirm", "cooldown", "time_filter", "decay"]
         with st.spinner("Running all strategies across all scenarios..."):
-            for strat in strat_options:
-                all_results[strat] = run_simulations(
-                    start_date=datetime.combine(sim_start, datetime.min.time()),
-                    tf_weights=tf_weight_config,
-                    strategy=strat,
-                )
+            start_dt = datetime.combine(sim_start, datetime.min.time())
+            with ThreadPoolExecutor(max_workers=min(8, len(strat_options))) as ex:
+                future_map = {
+                    ex.submit(run_simulations, start_dt, tf_weight_config, strat): strat
+                    for strat in strat_options
+                }
+                for fut in as_completed(future_map):
+                    strat = future_map[fut]
+                    try:
+                        all_results[strat] = fut.result()
+                    except Exception as e:
+                        all_results[strat] = {"error": str(e)}
         st.session_state["all_sim_results"] = all_results
 
     sim_results = st.session_state.get("sim_results")
