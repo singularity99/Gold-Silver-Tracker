@@ -804,12 +804,15 @@ with tab_simulator:
                     "P&L USD %": f"{m.get('pnl_usd_pct', 0)*100:,.1f}%",
                 })
         summary_df = pd.DataFrame(rows)
-        table_height = min(900, max(400, 35 * (len(summary_df) + 1)))
-        st.dataframe(
-            summary_df.sort_values(["Strategy", "Scenario"]).reset_index(drop=True),
-            use_container_width=True,
-            height=table_height,
-        )
+        if summary_df.empty:
+            st.info("No successful strategy results to display.")
+        else:
+            table_height = min(900, max(400, 35 * (len(summary_df) + 1)))
+            st.dataframe(
+                summary_df.sort_values(["Strategy", "Scenario"]).reset_index(drop=True),
+                use_container_width=True,
+                height=table_height,
+            )
         if err_rows:
             st.warning("Some strategies failed:\n" + "\n".join(err_rows))
 
