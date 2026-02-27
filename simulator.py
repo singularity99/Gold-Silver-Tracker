@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from functools import lru_cache
+from threading import Lock
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -19,8 +20,8 @@ from signals import (
 GBPUSD_TICKER = "GBPUSD=X"
 START_DEFAULT = datetime(2026, 1, 1)
 TRADE_SCENARIOS = {
-    "morning": {"hour": 10, "tf_weights": DEFAULT_TF_WEIGHTS},  # 09–10 London bar
-    "end_of_day": {"hour": 17, "tf_weights": DEFAULT_TF_WEIGHTS},  # 16–17 London bar
+    "morning": {"hour": 10},  # 09–10 London bar
+    "end_of_day": {"hour": 17},  # 16–17 London bar
     "intraday_short": {"hour": "all", "tf_weights": {"Short": 100, "Medium": 0, "Long": 0}},
 }
 TARGET_ALLOC = {
@@ -32,9 +33,11 @@ TARGET_ALLOC = {
 }
 
 
+_HISTORY_CACHE: dict[tuple[str, str, str], pd.DataFrame] = {}
+_HISTORY_CACHE_LOCK = Lock()
 
-@lru_cache(maxsize=None)
-def _fetch_history_cached(ticker: str, start_key: str, interval: str) -> pd.DataFrame:
+
+def _download_history(ticker: str, start_key: str, interval: str) -> pd.DataFrame:
     df = yf.download(ticker, start=start_key, interval=interval, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -42,9 +45,34 @@ def _fetch_history_cached(ticker: str, start_key: str, interval: str) -> pd.Data
     return df
 
 
+def _expected_min_rows(start: datetime, interval: str) -> int:
+    days = max((datetime.utcnow().date() - start.date()).days, 1)
+    if interval == "1h":
+        return max(24, int(days * 3))
+    if interval == "1d":
+        return max(20, int(days * 0.15))
+    return 1
+
+
+def _is_sufficient(df: pd.DataFrame, start: datetime, interval: str) -> bool:
+    if df is None or df.empty:
+        return False
+    return len(df) >= _expected_min_rows(start, interval)
+
+
 def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
     start_key = start.date().isoformat()
-    return _fetch_history_cached(ticker, start_key, interval).copy()
+    key = (ticker, start_key, interval)
+    with _HISTORY_CACHE_LOCK:
+        cached = _HISTORY_CACHE.get(key)
+        if cached is not None and _is_sufficient(cached, start, interval):
+            return cached.copy()
+
+        df = _download_history(ticker, start_key, interval)
+        if not _is_sufficient(df, start, interval):
+            df = _download_history(ticker, start_key, interval)
+        _HISTORY_CACHE[key] = df.copy()
+        return df.copy()
 
 
 def _to_london(df: pd.DataFrame) -> pd.DataFrame:
@@ -252,7 +280,7 @@ def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights: dict,
 
     for scenario, cfg in trade_scenarios.items():
         hour = cfg.get("hour", "all")
-        scenario_tf_weights = cfg.get("tf_weights", tf_weights)
+        scenario_tf_weights = cfg.get("tf_weights") or tf_weights
         positions = {"gold": 0.0, "silver": 0.0}
         cash_gbp = initial_cash
         equity_records = []
@@ -407,3 +435,9 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
 
 def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | None = None, strategy: str = "baseline") -> dict:
     return simulate(start=start_date, tf_weights=tf_weights or DEFAULT_TF_WEIGHTS, strategy=strategy)
+
+
+def clear_simulator_caches() -> None:
+    with _HISTORY_CACHE_LOCK:
+        _HISTORY_CACHE.clear()
+    simulate_cached.cache_clear()

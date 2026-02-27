@@ -30,7 +30,7 @@ from style import (
     news_card_html, port_stat_html, render_component,
     analysis_card_html,
 )
-from simulator import run_simulations
+from simulator import run_simulations, clear_simulator_caches
 
 st.set_page_config(
     page_title="Gold & Silver Strategy Monitor",
@@ -746,36 +746,48 @@ with tab_simulator:
     sim_results = st.session_state.get("sim_results")
     all_sim_results = st.session_state.get("all_sim_results")
     if sim_results:
-        metrics_cols = st.columns(len(sim_results))
-        for col, (name, res) in zip(metrics_cols, sim_results.items()):
+        good_sim_results = {k: v for k, v in sim_results.items() if isinstance(v, dict) and "metrics" in v}
+        bad_sim_results = {k: v for k, v in sim_results.items() if not (isinstance(v, dict) and "metrics" in v)}
+        if good_sim_results:
+            metrics_cols = st.columns(len(good_sim_results))
+        else:
+            metrics_cols = []
+        for col, (name, res) in zip(metrics_cols, good_sim_results.items()):
             m = res["metrics"]
             col.markdown(f"**{name.replace('_', ' ').title()}**")
             col.metric("Final Equity (GBP)", f"£{m['final_equity_gbp']:,.0f}", delta=f"£{m['pnl_gbp_abs']:,.0f} ({m['pnl_gbp_pct']*100:.1f}%)")
             col.metric("Final Equity (USD)", f"${m['final_equity_usd']:,.0f}", delta=f"${m['pnl_usd_abs']:,.0f} ({m['pnl_usd_pct']*100:.1f}%)")
             col.caption(f"CAGR {m['CAGR']*100:.1f}% | Sharpe {m['Sharpe']:.2f} | Max DD {m['Max Drawdown']*100:.1f}%")
 
-        eq_df = pd.DataFrame({f"{name} (GBP)": res["equity"]["equity_gbp"] for name, res in sim_results.items()})
-        st.line_chart(eq_df, height=260)
-        end_caption = " | ".join([
-            f"{name.replace('_',' ').title()}: £{res['metrics']['final_equity_gbp']:,.0f} ({res['metrics']['pnl_gbp_pct']*100:.1f}%)"
-            for name, res in sim_results.items()
-        ])
-        st.caption(f"Ending equity & P&L vs £{next(iter(sim_results.values()))['metrics']['initial_cash']:,.0f}: {end_caption}")
+        if good_sim_results:
+            eq_df = pd.DataFrame({f"{name} (GBP)": res["equity"]["equity_gbp"] for name, res in good_sim_results.items()})
+            st.line_chart(eq_df, height=260)
+            end_caption = " | ".join([
+                f"{name.replace('_',' ').title()}: £{res['metrics']['final_equity_gbp']:,.0f} ({res['metrics']['pnl_gbp_pct']*100:.1f}%)"
+                for name, res in good_sim_results.items()
+            ])
+            st.caption(f"Ending equity & P&L vs £{next(iter(good_sim_results.values()))['metrics']['initial_cash']:,.0f}: {end_caption}")
 
-        sel = st.selectbox("View trades for", list(sim_results.keys()))
-        trades = sim_results[sel]["trades"]
-        if not trades.empty:
-            trades_display = trades.copy()
-            trades_display["timestamp"] = trades_display["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
-            st.dataframe(
-                trades_display[[
-                    "timestamp", "metal", "signal", "target_weight", "units_delta", "price_gbp",
-                    "notional_gbp", "commission_gbp", "equity_gbp_after", "equity_usd_after", "pnl_gbp_pct"
-                ]],
-                use_container_width=True, hide_index=True,
-            )
-        else:
-            st.write("No trades generated for this window.")
+            sel = st.selectbox("View trades for", list(good_sim_results.keys()))
+            trades = good_sim_results[sel]["trades"]
+            if not trades.empty:
+                trades_display = trades.copy()
+                trades_display["timestamp"] = trades_display["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+                st.dataframe(
+                    trades_display[[
+                        "timestamp", "metal", "signal", "target_weight", "units_delta", "price_gbp",
+                        "notional_gbp", "commission_gbp", "equity_gbp_after", "equity_usd_after", "pnl_gbp_pct"
+                    ]],
+                    use_container_width=True, hide_index=True,
+                )
+            else:
+                st.write("No trades generated for this window.")
+
+        if bad_sim_results:
+            st.warning("Some scenarios failed: " + ", ".join(
+                f"{k}: {v.get('error', 'missing metrics') if isinstance(v, dict) else 'invalid result'}"
+                for k, v in bad_sim_results.items()
+            ))
 
     if all_sim_results:
         st.subheader("All strategies summary (final P&L)")
@@ -828,6 +840,7 @@ col_refresh, col_info = st.columns([1, 3])
 with col_refresh:
     if st.button("Refresh All Data"):
         st.cache_data.clear()
+        clear_simulator_caches()
         st.rerun()
 with col_info:
     st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')} | Data: Yahoo Finance | Not financial advice")
