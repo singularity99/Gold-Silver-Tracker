@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from functools import lru_cache
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -32,12 +33,18 @@ TARGET_ALLOC = {
 
 
 
-def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
-    df = yf.download(ticker, start=start, interval=interval, progress=False)
+@lru_cache(maxsize=None)
+def _fetch_history_cached(ticker: str, start_key: str, interval: str) -> pd.DataFrame:
+    df = yf.download(ticker, start=start_key, interval=interval, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index)
     return df
+
+
+def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
+    start_key = start.date().isoformat()
+    return _fetch_history_cached(ticker, start_key, interval).copy()
 
 
 def _to_london(df: pd.DataFrame) -> pd.DataFrame:
