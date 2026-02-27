@@ -183,6 +183,15 @@ def _target_hysteresis(score: dict, last_target: float) -> float:
         return 0.0
 
 
+def _target_banded(score: dict) -> float:
+    comp = score.get("composite_score", 0.0)
+    if comp <= 0:
+        return 0.0
+    if comp >= 0.4:
+        return TARGET_ALLOC[SIGNAL_STRONG_BUY]
+    return TARGET_ALLOC[SIGNAL_STRONG_BUY] * (comp / 0.4)
+
+
 def _rebalance(positions: dict, cash_gbp: float, targets: dict, prices_gbp: dict, commission: float) -> tuple[dict, float, list]:
     trades = []
     equity = cash_gbp + sum(positions[m] * prices_gbp[m] for m in positions)
@@ -231,9 +240,10 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
     fx_hourly = _to_london(_fetch_history(GBPUSD_TICKER, start, "1h"))
 
     results = {}
-    scenario_states = {scenario: {"gold": {"last_target": 0.0, "entry_price": None, "entry_atr": None},
-                                   "silver": {"last_target": 0.0, "entry_price": None, "entry_atr": None}}
-                       for scenario in trade_scenarios}
+    scenario_states = {scenario: {
+        "gold": {"last_target": 0.0, "cooldown": 0, "bull_count": 0, "consec_short": 0, "consec_med": 0, "prev_short": None},
+        "silver": {"last_target": 0.0, "cooldown": 0, "bull_count": 0, "consec_short": 0, "consec_med": 0, "prev_short": None},
+    } for scenario in trade_scenarios}
 
     for scenario, cfg in trade_scenarios.items():
         hour = cfg.get("hour", "all")
@@ -267,14 +277,53 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
             silver_sig, silver_score = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, scenario_tf_weights)
 
             def _pick_target(metal_signal: str, metal_score: dict, metal: str) -> float:
-                if strategy == "agree":
-                    return _target_agree(metal_score)
-                if strategy == "hysteresis":
-                    last_t = scenario_states[scenario][metal]["last_target"]
-                    tgt = _target_hysteresis(metal_score, last_t)
-                    scenario_states[scenario][metal]["last_target"] = tgt
-                    return tgt
-                return _target_baseline(metal_signal)
+                state = scenario_states[scenario][metal]
+                short_score = metal_score.get("timeframe_scores", {}).get("Short", 0.0)
+                med_score = metal_score.get("timeframe_scores", {}).get("Medium", 0.0)
+                comp = metal_score.get("composite_score", 0.0)
+
+                # Update counters
+                state["consec_short"] = state["consec_short"] + 1 if short_score > 0 else 0
+                state["consec_med"] = state["consec_med"] + 1 if med_score > 0 else 0
+                state["bull_count"] = state["bull_count"] + 1 if metal_signal in (SIGNAL_BUY, SIGNAL_STRONG_BUY) else 0
+                if state["cooldown"] > 0:
+                    state["cooldown"] -= 1
+
+                def _apply_strategy() -> float:
+                    if strategy == "agree":
+                        return _target_agree(metal_score)
+                    if strategy == "hysteresis":
+                        return _target_hysteresis(metal_score, state["last_target"])
+                    if strategy == "banded":
+                        return _target_banded(metal_score)
+                    if strategy == "confirm":
+                        if state["bull_count"] >= 2:
+                            return _target_baseline(metal_signal)
+                        return 0.0
+                    if strategy == "cooldown":
+                        if metal_signal in (SIGNAL_SELL, SIGNAL_STRONG_SELL, SIGNAL_NEUTRAL):
+                            state["cooldown"] = 3
+                        if metal_signal in (SIGNAL_BUY, SIGNAL_STRONG_BUY):
+                            if state["cooldown"] > 0 and comp < 0.35 and state["last_target"] == 0:
+                                return 0.0
+                        return _target_baseline(metal_signal)
+                    if strategy == "time_filter":
+                        if state["consec_short"] >= 3 and state["consec_med"] >= 2:
+                            return _target_baseline(metal_signal)
+                        return 0.0
+                    if strategy == "decay":
+                        base = _target_baseline(metal_signal)
+                        prev_s = state.get("prev_short")
+                        if base > 0 and prev_s is not None and short_score < prev_s and short_score > 0:
+                            base = max(0.0, base - 0.05)
+                        return base
+                    return _target_baseline(metal_signal)
+
+                tgt = _apply_strategy()
+                tgt = max(0.0, min(1.0, tgt))
+                state["last_target"] = tgt
+                state["prev_short"] = short_score
+                return tgt
 
             targets = {
                 "gold": _pick_target(gold_sig, gold_score, "gold"),

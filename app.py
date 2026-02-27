@@ -678,6 +678,11 @@ with tab_simulator:
             ("baseline", "Baseline (per-signal targets)"),
             ("agree", "Short+Medium agree only"),
             ("hysteresis", "Composite hysteresis bands"),
+            ("banded", "Score-banded sizing"),
+            ("confirm", "2-bar confirmation for entries"),
+            ("cooldown", "Cooldown after flips"),
+            ("time_filter", "Time-in-market filter (Short & Medium)"),
+            ("decay", "Position decay on weakening short score"),
         ],
         format_func=lambda x: x[1],
     )[0]
@@ -687,6 +692,11 @@ with tab_simulator:
         - **Baseline (per-signal targets):** Uses the raw signal mapping (Strong Buy 60%, Buy 30%, Sell/Strong Sell 30%, Neutral 0%) at each checkpoint.
         - **Short+Medium agree only:** Requires both Short and Medium scores to align (>= +0.2 to enter; >= +0.4 for Strong). If they don’t agree, target is 0% (flat). Reduces whipsaw.
         - **Composite hysteresis bands:** Uses composite score with bands to avoid flip-flop. Enter above +0.2 (Strong above +0.4), exit below -0.1. Holds when inside the band.
+        - **Score-banded sizing:** Scales size with composite: 0→0%, 0.4→60% (linear in between). No fixed steps.
+        - **2-bar confirmation:** Only enters after 2 consecutive Buy/Strong Buy readings; exits immediately on Neutral/Sell.
+        - **Cooldown after flips:** On Sell/Neutral sets a 3-bar cooldown; bullish entries during cooldown require composite ≥0.35.
+        - **Time-in-market filter:** Needs Short >0 for 3 bars and Medium >0 for 2 bars to allow entry; otherwise stay flat.
+        - **Position decay:** If holding and Short score weakens vs prior bar, trims target by 5% (but stays long if signal is still bullish).
         """)
     run_sim = st.button("Run backtest", key="run_simulator")
 
