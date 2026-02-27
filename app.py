@@ -309,13 +309,17 @@ st.sidebar.subheader("Portfolio")
 
 
 def _save_total_pot():
-    amount = float(st.session_state["total_pot_cfg"])
+    raw_amount = st.session_state.get("total_pot_cfg")
+    if raw_amount is None:
+        raw_amount = get_portfolio().get("total_pot", 2_000_000.0)
+        st.session_state["total_pot_cfg"] = float(raw_amount)
+    amount = float(raw_amount)
     set_total_pot(amount)
     st.session_state["_last_total_pot_synced"] = amount
 
 
 portfolio_data = get_portfolio()
-shared_total_pot = float(portfolio_data["total_pot"])
+shared_total_pot = float(portfolio_data.get("total_pot", 2_000_000.0))
 if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_pot_synced") != shared_total_pot:
     st.session_state["total_pot_cfg"] = shared_total_pot
     st.session_state["_last_total_pot_synced"] = shared_total_pot
