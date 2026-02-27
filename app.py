@@ -686,7 +686,6 @@ with tab_simulator:
         ],
         format_func=lambda x: x[1],
     )[0]
-    overlays = {}
     with st.expander("What do these strategies mean?", expanded=False):
         st.markdown("""
         - **Baseline (per-signal targets):** Uses the raw signal mapping (Strong Buy 60%, Buy 30%, Sell/Strong Sell 30%, Neutral 0%) at each checkpoint.

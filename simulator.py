@@ -383,5 +383,5 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
     return results
 
 
-def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | None = None, strategy: str = "baseline", overlays: dict | None = None) -> dict:
-    return simulate(start=start_date, tf_weights=tf_weights or DEFAULT_TF_WEIGHTS, strategy=strategy, overlays=overlays)
+def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | None = None, strategy: str = "baseline") -> dict:
+    return simulate(start=start_date, tf_weights=tf_weights or DEFAULT_TF_WEIGHTS, strategy=strategy)
