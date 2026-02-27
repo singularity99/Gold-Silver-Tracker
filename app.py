@@ -775,8 +775,18 @@ with tab_simulator:
     if all_sim_results:
         st.subheader("All strategies summary (final P&L)")
         rows = []
+        err_rows = []
         for strat, scenarios in all_sim_results.items():
+            if isinstance(scenarios, dict) and set(scenarios.keys()) == {"error"}:
+                err_rows.append(f"{strat}: {scenarios.get('error','unknown error')}")
+                continue
+            if not isinstance(scenarios, dict):
+                err_rows.append(f"{strat}: unexpected result type")
+                continue
             for scen, res in scenarios.items():
+                if not isinstance(res, dict) or "metrics" not in res:
+                    err_rows.append(f"{strat}/{scen}: missing metrics")
+                    continue
                 m = res["metrics"]
                 rows.append({
                     "Strategy": strat,
@@ -795,6 +805,8 @@ with tab_simulator:
             use_container_width=True,
             height=table_height,
         )
+        if err_rows:
+            st.warning("Some strategies failed:\n" + "\n".join(err_rows))
 
 # ========================= FOOTER =========================
 st.divider()
