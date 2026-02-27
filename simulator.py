@@ -30,18 +30,6 @@ TARGET_ALLOC = {
     SIGNAL_STRONG_SELL: 0.30,
 }
 
-DEFAULT_OVERLAYS = {
-    "regime_filter": False,
-    "low_vol_thresh": 0.03,  # 3% daily vol
-    "high_vol_thresh": 0.06,  # 6% daily vol (breakout regime)
-    "volume_filter": False,
-    "vol_percentile": 40,  # require current hourly vol >= 40th percentile of lookback
-    "adx_filter": False,
-    "adx_threshold": 20,
-    "atr_overlays": False,
-    "atr_stop_mult": 2.0,
-    "atr_tp_mult": 3.0,
-}
 
 
 def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
@@ -231,11 +219,9 @@ def _rebalance(positions: dict, cash_gbp: float, targets: dict, prices_gbp: dict
 
 def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
              tf_weights: dict | None = None, commission_gbp: float = 10.0,
-             trade_scenarios: dict = None, strategy: str = "baseline",
-             overlays: dict | None = None) -> dict:
+             trade_scenarios: dict = None, strategy: str = "baseline") -> dict:
     tf_weights = tf_weights or DEFAULT_TF_WEIGHTS
     trade_scenarios = trade_scenarios or TRADE_SCENARIOS
-    overlays = {**DEFAULT_OVERLAYS, **(overlays or {})}
     start_buffer = start - timedelta(days=400)
 
     gold_daily = _to_london(_fetch_history("GC=F", start_buffer, "1d"))
@@ -280,36 +266,6 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
             gold_sig, gold_score = _compute_signal("gold", gold_daily, gold_hourly, prev_idx, scenario_tf_weights)
             silver_sig, silver_score = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, scenario_tf_weights)
 
-            def _gates(metal: str, metal_score: dict, current_price: float) -> bool:
-                # Regime filter: daily realized vol 20d
-                if overlays.get("regime_filter", False):
-                    daily_df = gold_daily if metal == "gold" else silver_daily
-                    if len(daily_df) >= 25:
-                        ret = daily_df["Close"].pct_change().dropna()
-                        rv = ret.rolling(20).std().iloc[-1] if len(ret) >= 20 else np.nan
-                        if not np.isnan(rv):
-                            if not (rv <= overlays["low_vol_thresh"] or rv >= overlays["high_vol_thresh"]):
-                                return False
-
-                # Volume filter (intraday): require current hourly vol above percentile
-                if overlays.get("volume_filter", False):
-                    hourly_df = gold_hourly if metal == "gold" else silver_hourly
-                    lookback = hourly_df[hourly_df.index >= ts - timedelta(days=30)]
-                    if not lookback.empty and not np.isnan(hourly_df.loc[ts, "Volume"]):
-                        pct = np.nanpercentile(lookback["Volume"].values, overlays.get("vol_percentile", 40))
-                        if hourly_df.loc[ts, "Volume"] < pct:
-                            return False
-
-                # ADX filter on short window
-                if overlays.get("adx_filter", False):
-                    short_df = (gold_hourly if metal == "gold" else silver_hourly)
-                    adx_val = _adx(short_df[short_df.index <= ts].tail(200))
-                    if not np.isnan(adx_val) and adx_val < overlays.get("adx_threshold", 20):
-                        return False
-
-                # ATR stop/take-profit handled separately
-                return True
-
             def _pick_target(metal_signal: str, metal_score: dict, metal: str) -> float:
                 if strategy == "agree":
                     return _target_agree(metal_score)
@@ -320,24 +276,10 @@ def simulate(start: datetime = START_DEFAULT, initial_cash: float = 2_000_000.0,
                     return tgt
                 return _target_baseline(metal_signal)
 
-            targets = {}
-            for metal, sig, score in (("gold", gold_sig, gold_score), ("silver", silver_sig, silver_score)):
-                price_now = prices_gbp[metal]
-                if overlays.get("atr_overlays", False):
-                    short_df = (gold_hourly if metal == "gold" else silver_hourly)
-                    atr_val = _atr(short_df[short_df.index <= ts].tail(200))
-                    st_m = scenario_states[scenario][metal]
-                    if st_m["entry_price"] and not np.isnan(atr_val):
-                        stop = st_m["entry_price"] - overlays.get("atr_stop_mult", 2.0) * atr_val
-                        tp = st_m["entry_price"] + overlays.get("atr_tp_mult", 3.0) * atr_val
-                        if price_now <= stop or price_now >= tp:
-                            targets[metal] = 0.0
-                            continue
-                if _gates(metal, score, price_now):
-                    tgt = _pick_target(sig, score, metal)
-                else:
-                    tgt = (positions[metal] * price_now) / equity if equity > 0 else 0.0  # hold
-                targets[metal] = tgt
+            targets = {
+                "gold": _pick_target(gold_sig, gold_score, "gold"),
+                "silver": _pick_target(silver_sig, silver_score, "silver"),
+            }
             positions, cash_gbp, trades = _rebalance(positions, cash_gbp, targets, prices_gbp, commission_gbp)
             for tr in trades:
                 tr.update({
