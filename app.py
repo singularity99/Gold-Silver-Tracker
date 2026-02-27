@@ -321,7 +321,6 @@ if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_
     st.session_state["_last_total_pot_synced"] = shared_total_pot
 st.sidebar.number_input("Total investment pot (GBP)", step=10_000.0, key="total_pot_cfg", on_change=_save_total_pot)
 
-# ========================= DATA FETCH =========================
 @st.cache_data(show_spinner=False)
 def _fetch_spot_cached():
     return fetch_spot_prices()
@@ -332,9 +331,14 @@ def _fetch_etc_cached(tickers: tuple[str, ...]):
     return fetch_etc_prices(list(tickers)) if tickers else {}
 
 
-with st.spinner("Loading market data..."):
-    spot = _fetch_spot_cached()
-    etc_prices = _fetch_etc_cached(tuple(selected_etcs)) if selected_etcs else {}
+def _get_spot_and_etc(selected):
+    spot_local = _fetch_spot_cached()
+    etc_local = _fetch_etc_cached(tuple(selected)) if selected else {}
+    return spot_local, etc_local
+
+
+# Defer fetching until after sidebar selections are set
+spot, etc_prices = _get_spot_and_etc(selected_etcs)
 
 # ========================= PRICE TICKER STRIP =========================
 ticker_html = ticker_strip_html(
@@ -682,34 +686,35 @@ with tab_news:
 # ─────────────────────── SIMULATOR TAB ───────────────────────
 with tab_simulator:
     st.subheader("Historical Signal Simulator")
-    sim_start = st.date_input("Backtest start date", value=date(2026, 1, 1))
-    strategy = st.selectbox(
-        "Strategy",
-        options=[
-            ("baseline", "Baseline (per-signal targets)"),
-            ("agree", "Short+Medium agree only"),
-            ("hysteresis", "Composite hysteresis bands"),
-            ("banded", "Score-banded sizing"),
-            ("confirm", "2-bar confirmation for entries"),
-            ("cooldown", "Cooldown after flips"),
-            ("time_filter", "Time-in-market filter (Short & Medium)"),
-            ("decay", "Position decay on weakening short score"),
-        ],
-        format_func=lambda x: x[1],
-    )[0]
-    with st.expander("What do these strategies mean?", expanded=False):
-        st.markdown("""
-        - **Baseline (per-signal targets):** Uses the raw signal mapping (Strong Buy 60%, Buy 30%, Sell/Strong Sell 30%, Neutral 0%) at each checkpoint.
-        - **Short+Medium agree only:** Requires both Short and Medium scores to align (>= +0.2 to enter; >= +0.4 for Strong). If they don’t agree, target is 0% (flat). Reduces whipsaw.
-        - **Composite hysteresis bands:** Uses composite score with bands to avoid flip-flop. Enter above +0.2 (Strong above +0.4), exit below -0.1. Holds when inside the band.
-        - **Score-banded sizing:** Scales size with composite: 0→0%, 0.4→60% (linear in between). No fixed steps.
-        - **2-bar confirmation:** Only enters after 2 consecutive Buy/Strong Buy readings; exits immediately on Neutral/Sell.
-        - **Cooldown after flips:** On Sell/Neutral sets a 3-bar cooldown; bullish entries during cooldown require composite ≥0.35.
-        - **Time-in-market filter:** Needs Short >0 for 3 bars and Medium >0 for 2 bars to allow entry; otherwise stay flat.
-        - **Position decay:** If holding and Short score weakens vs prior bar, trims target by 5% (but stays long if signal is still bullish).
-        """)
-    run_sim = st.button("Run backtest", key="run_simulator")
-    run_all = st.button("Run all strategies", key="run_all_simulator")
+    with st.form("sim_form"):
+        sim_start = st.date_input("Backtest start date", value=date(2026, 1, 1))
+        strategy = st.selectbox(
+            "Strategy",
+            options=[
+                ("baseline", "Baseline (per-signal targets)"),
+                ("agree", "Short+Medium agree only"),
+                ("hysteresis", "Composite hysteresis bands"),
+                ("banded", "Score-banded sizing"),
+                ("confirm", "2-bar confirmation for entries"),
+                ("cooldown", "Cooldown after flips"),
+                ("time_filter", "Time-in-market filter (Short & Medium)"),
+                ("decay", "Position decay on weakening short score"),
+            ],
+            format_func=lambda x: x[1],
+        )[0]
+        with st.expander("What do these strategies mean?", expanded=False):
+            st.markdown("""
+            - **Baseline (per-signal targets):** Uses the raw signal mapping (Strong Buy 60%, Buy 30%, Sell/Strong Sell 30%, Neutral 0%) at each checkpoint.
+            - **Short+Medium agree only:** Requires both Short and Medium scores to align (>= +0.2 to enter; >= +0.4 for Strong). If they don’t agree, target is 0% (flat). Reduces whipsaw.
+            - **Composite hysteresis bands:** Uses composite score with bands to avoid flip-flop. Enter above +0.2 (Strong above +0.4), exit below -0.1. Holds when inside the band.
+            - **Score-banded sizing:** Scales size with composite: 0→0%, 0.4→60% (linear in between). No fixed steps.
+            - **2-bar confirmation:** Only enters after 2 consecutive Buy/Strong Buy readings; exits immediately on Neutral/Sell.
+            - **Cooldown after flips:** On Sell/Neutral sets a 3-bar cooldown; bullish entries during cooldown require composite ≥0.35.
+            - **Time-in-market filter:** Needs Short >0 for 3 bars and Medium >0 for 2 bars to allow entry; otherwise stay flat.
+            - **Position decay:** If holding and Short score weakens vs prior bar, trims target by 5% (but stays long if signal is still bullish).
+            """)
+        run_sim = st.form_submit_button("Run backtest", use_container_width=True)
+        run_all = st.form_submit_button("Run all strategies", use_container_width=True)
 
     if run_sim:
         with st.spinner("Running backtests (morning vs end-of-day)..."):
