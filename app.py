@@ -779,13 +779,18 @@ with tab_simulator:
                     "Scenario": scen,
                     "Final Equity (GBP)": f"£{m.get('final_equity_gbp', 0):,.0f}",
                     "P&L GBP": f"£{m.get('pnl_gbp_abs', 0):,.0f}",
-                    "P&L GBP %": f"{m.get('pnl_gbp_pct', 0)*100:.1f}%",
+                    "P&L GBP %": f"{m.get('pnl_gbp_pct', 0)*100:,.1f}%",
                     "Final Equity (USD)": f"${m.get('final_equity_usd', 0):,.0f}",
                     "P&L USD": f"${m.get('pnl_usd_abs', 0):,.0f}",
-                    "P&L USD %": f"{m.get('pnl_usd_pct', 0)*100:.1f}%",
+                    "P&L USD %": f"{m.get('pnl_usd_pct', 0)*100:,.1f}%",
                 })
         summary_df = pd.DataFrame(rows)
-        st.dataframe(summary_df.sort_values(["Strategy", "Scenario"]).reset_index(drop=True), use_container_width=True)
+        table_height = min(900, max(400, 35 * (len(summary_df) + 1)))
+        st.dataframe(
+            summary_df.sort_values(["Strategy", "Scenario"]).reset_index(drop=True),
+            use_container_width=True,
+            height=table_height,
+        )
 
 # ========================= FOOTER =========================
 st.divider()
