@@ -698,6 +698,7 @@ with tab_simulator:
         - **Position decay:** If holding and Short score weakens vs prior bar, trims target by 5% (but stays long if signal is still bullish).
         """)
     run_sim = st.button("Run backtest", key="run_simulator")
+    run_all = st.button("Run all strategies", key="run_all_simulator")
 
     if run_sim:
         with st.spinner("Running backtests (morning vs end-of-day)..."):
@@ -708,7 +709,23 @@ with tab_simulator:
             )
         st.session_state["sim_results"] = sim_results
 
+    if run_all:
+        all_results = {}
+        strat_options = [s[0] for s in (
+            ("baseline", ""), ("agree", ""), ("hysteresis", ""), ("banded", ""),
+            ("confirm", ""), ("cooldown", ""), ("time_filter", ""), ("decay", ""),
+        )]
+        with st.spinner("Running all strategies across all scenarios..."):
+            for strat in strat_options:
+                all_results[strat] = run_simulations(
+                    start_date=datetime.combine(sim_start, datetime.min.time()),
+                    tf_weights=tf_weight_config,
+                    strategy=strat,
+                )
+        st.session_state["all_sim_results"] = all_results
+
     sim_results = st.session_state.get("sim_results")
+    all_sim_results = st.session_state.get("all_sim_results")
     if sim_results:
         metrics_cols = st.columns(len(sim_results))
         for col, (name, res) in zip(metrics_cols, sim_results.items()):
@@ -740,6 +757,25 @@ with tab_simulator:
             )
         else:
             st.write("No trades generated for this window.")
+
+    if all_sim_results:
+        st.subheader("All strategies summary (final P&L)")
+        rows = []
+        for strat, scenarios in all_sim_results.items():
+            for scen, res in scenarios.items():
+                m = res["metrics"]
+                rows.append({
+                    "Strategy": strat,
+                    "Scenario": scen,
+                    "Final Equity (GBP)": m.get("final_equity_gbp", 0),
+                    "P&L GBP": m.get("pnl_gbp_abs", 0),
+                    "P&L GBP %": m.get("pnl_gbp_pct", 0) * 100,
+                    "Final Equity (USD)": m.get("final_equity_usd", 0),
+                    "P&L USD": m.get("pnl_usd_abs", 0),
+                    "P&L USD %": m.get("pnl_usd_pct", 0) * 100,
+                })
+        summary_df = pd.DataFrame(rows)
+        st.dataframe(summary_df.sort_values(["Strategy", "Scenario"]).reset_index(drop=True), use_container_width=True)
 
 # ========================= FOOTER =========================
 st.divider()
