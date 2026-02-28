@@ -419,27 +419,55 @@ with tab_dashboard:
             if silver_score:
                 silver_score = apply_macro_overlay(silver_score, macro_state, "silver")
 
-    if st.session_state.get("macro_overlay_enabled", True):
-        phase = macro_state.get("phase", "Unknown")
-        conf = macro_state.get("confidence", 0.0)
-        source = macro_state.get("source", "unknown")
-        st.info(
-            f"Macro overlay active: **{phase}** regime (confidence {conf:.0%}) | "
-            f"Leading {macro_state.get('leading_score', 0):+.2f}, "
-            f"Coincident {macro_state.get('coincident_score', 0):+.2f}, "
-            f"Imminent {macro_state.get('imminent_score', 0):+.2f} | Source: {source}"
-        )
-        with st.expander("Macro regime details (Zeberg-inspired)", expanded=False):
-            m = macro_state.get("metrics", {})
-            st.markdown(
-                f"- **Yield spread (10Y-2Y)**: {m.get('yield_spread_10y2y', float('nan')):.2f}\n"
-                f"- **Housing (6m %)**: {m.get('housing_6m_change', float('nan')):.1f}%\n"
-                f"- **Payrolls (6m %)**: {m.get('payroll_6m_change', float('nan')):.1f}%\n"
-                f"- **Industrial Production (6m %)**: {m.get('indpro_6m_change', float('nan')):.1f}%\n"
-                f"- **Claims stress (13w/52w)**: {m.get('claims_13w_52w_ratio', float('nan')):.2f}\n"
-                f"- **Sahm-like trigger**: {m.get('sahm_like', float('nan')):.2f}\n"
-                f"- **Fed Funds**: {m.get('fed_funds', float('nan')):.2f}% | **CPI YoY**: {m.get('cpi_yoy', float('nan')):.2f}%"
-            )
+    st.subheader("Macro Business Indicators (Zeberg Lens)")
+    phase = macro_state.get("phase", "Unknown")
+    conf = macro_state.get("confidence", 0.0)
+    source = macro_state.get("source", "unknown")
+    score_cols = st.columns(4)
+    score_cols[0].metric("Regime", phase)
+    score_cols[1].metric("Confidence", f"{conf:.0%}")
+    score_cols[2].metric("Leading Score", f"{macro_state.get('leading_score', 0):+.2f}")
+    score_cols[3].metric("Coincident Score", f"{macro_state.get('coincident_score', 0):+.2f}")
+    st.caption(f"Source: {source} | Imminent Score: {macro_state.get('imminent_score', 0):+.2f}")
+    if not st.session_state.get("macro_overlay_enabled", True):
+        st.caption("Macro overlay is disabled in Settings. This section is informational only.")
+
+    def _votes_df(votes: dict) -> pd.DataFrame:
+        rows = []
+        for k, v in votes.items():
+            rows.append({
+                "Indicator": k,
+                "Vote": "Bullish" if v > 0 else ("Bearish" if v < 0 else "Neutral"),
+                "Score": int(v),
+            })
+        return pd.DataFrame(rows)
+
+    vcols = st.columns(3)
+    vcols[0].markdown("**Leading**")
+    vcols[0].dataframe(_votes_df(macro_state.get("leading_votes", {})), use_container_width=True, hide_index=True)
+    vcols[1].markdown("**Coincident**")
+    vcols[1].dataframe(_votes_df(macro_state.get("coincident_votes", {})), use_container_width=True, hide_index=True)
+    vcols[2].markdown("**Imminent Recession**")
+    vcols[2].dataframe(_votes_df(macro_state.get("imminent_votes", {})), use_container_width=True, hide_index=True)
+
+    with st.expander("Macro metrics detail", expanded=False):
+        m = macro_state.get("metrics", {})
+        metrics_df = pd.DataFrame([
+            {"Metric": "Yield spread (10Y-2Y)", "Value": m.get("yield_spread_10y2y", np.nan)},
+            {"Metric": "Housing (6m %)", "Value": m.get("housing_6m_change", np.nan)},
+            {"Metric": "Payrolls (6m %)", "Value": m.get("payroll_6m_change", np.nan)},
+            {"Metric": "Industrial Production (6m %)", "Value": m.get("indpro_6m_change", np.nan)},
+            {"Metric": "Claims stress (13w/52w)", "Value": m.get("claims_13w_52w_ratio", np.nan)},
+            {"Metric": "Sahm-like trigger", "Value": m.get("sahm_like", np.nan)},
+            {"Metric": "Fed Funds", "Value": m.get("fed_funds", np.nan)},
+            {"Metric": "CPI YoY", "Value": m.get("cpi_yoy", np.nan)},
+            {"Metric": "VIX", "Value": m.get("vix", np.nan)},
+            {"Metric": "Copper/Gold (3m %)", "Value": m.get("copper_gold_3m", np.nan)},
+            {"Metric": "XLI/XLU (3m %)", "Value": m.get("xli_xlu_3m", np.nan)},
+            {"Metric": "IWM/SPX (3m %)", "Value": m.get("iwm_spx_3m", np.nan)},
+            {"Metric": "HYG/LQD (3m %)", "Value": m.get("hyg_lqd_3m", np.nan)},
+        ])
+        st.dataframe(metrics_df, use_container_width=True, hide_index=True)
 
     alerts = []
     for metal_name, score_obj in (("gold", gold_score), ("silver", silver_score)):
