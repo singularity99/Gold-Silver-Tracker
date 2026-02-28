@@ -418,38 +418,38 @@ with tab_dashboard:
             if silver_score:
                 silver_score = apply_macro_overlay(silver_score, macro_state, "silver")
 
-    st.subheader("Macro Business Indicators (Zeburg (TM) Lens)")
-    phase = macro_state.get("phase", "Unknown")
-    conf = macro_state.get("confidence", 0.0)
-    source = macro_state.get("source", "unknown")
-    score_cols = st.columns(4)
-    score_cols[0].metric("Regime", phase)
-    score_cols[1].metric("Confidence", f"{conf:.0%}")
-    score_cols[2].metric("Leading Score", f"{macro_state.get('leading_score', 0):+.2f}")
-    score_cols[3].metric("Coincident Score", f"{macro_state.get('coincident_score', 0):+.2f}")
-    st.caption(f"Source: {source} | Imminent Score: {macro_state.get('imminent_score', 0):+.2f}")
-    if not st.session_state.get("macro_overlay_enabled", True):
-        st.caption("Macro overlay is disabled in Settings. This section is informational only.")
+    with st.expander("Macro Business Indicators (Zeburg (TM) Lens)", expanded=False):
+        phase = macro_state.get("phase", "Unknown")
+        conf = macro_state.get("confidence", 0.0)
+        source = macro_state.get("source", "unknown")
+        score_cols = st.columns(4)
+        score_cols[0].metric("Regime", phase)
+        score_cols[1].metric("Confidence", f"{conf:.0%}")
+        score_cols[2].metric("Leading Score", f"{macro_state.get('leading_score', 0):+.2f}")
+        score_cols[3].metric("Coincident Score", f"{macro_state.get('coincident_score', 0):+.2f}")
+        st.caption(f"Source: {source} | Imminent Score: {macro_state.get('imminent_score', 0):+.2f}")
+        if not st.session_state.get("macro_overlay_enabled", True):
+            st.caption("Macro overlay is disabled in Settings. This section is informational only.")
 
-    def _votes_df(votes: dict) -> pd.DataFrame:
-        rows = []
-        for k, v in votes.items():
-            rows.append({
-                "Indicator": k,
-                "Vote": "Bullish" if v > 0 else ("Bearish" if v < 0 else "Neutral"),
-                "Score": int(v),
-            })
-        return pd.DataFrame(rows)
+        def _votes_df(votes: dict) -> pd.DataFrame:
+            rows = []
+            for k, v in votes.items():
+                rows.append({
+                    "Indicator": k,
+                    "Vote": "Bullish" if v > 0 else ("Bearish" if v < 0 else "Neutral"),
+                    "Score": int(v),
+                })
+            return pd.DataFrame(rows)
 
-    vcols = st.columns(3)
-    vcols[0].markdown("**Leading**")
-    vcols[0].dataframe(_votes_df(macro_state.get("leading_votes", {})), use_container_width=True, hide_index=True)
-    vcols[1].markdown("**Coincident**")
-    vcols[1].dataframe(_votes_df(macro_state.get("coincident_votes", {})), use_container_width=True, hide_index=True)
-    vcols[2].markdown("**Imminent Recession**")
-    vcols[2].dataframe(_votes_df(macro_state.get("imminent_votes", {})), use_container_width=True, hide_index=True)
+        vcols = st.columns(3)
+        vcols[0].markdown("**Leading**")
+        vcols[0].dataframe(_votes_df(macro_state.get("leading_votes", {})), use_container_width=True, hide_index=True)
+        vcols[1].markdown("**Coincident**")
+        vcols[1].dataframe(_votes_df(macro_state.get("coincident_votes", {})), use_container_width=True, hide_index=True)
+        vcols[2].markdown("**Imminent Recession**")
+        vcols[2].dataframe(_votes_df(macro_state.get("imminent_votes", {})), use_container_width=True, hide_index=True)
 
-    with st.expander("Macro metrics detail", expanded=False):
+        st.markdown("**Macro metrics detail**")
         m = macro_state.get("metrics", {})
         metrics_df = pd.DataFrame([
             {"Metric": "Yield spread (10Y-2Y)", "Value": m.get("yield_spread_10y2y", np.nan)},
