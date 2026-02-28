@@ -35,10 +35,27 @@ TARGET_ALLOC = {
 
 _HISTORY_CACHE: dict[tuple[str, str, str], pd.DataFrame] = {}
 _HISTORY_CACHE_LOCK = Lock()
+_SIGNAL_CACHE: dict[tuple[str, str, tuple[float, float, float]], tuple[str, dict]] = {}
+_SIGNAL_CACHE_LOCK = Lock()
 
 
-def _download_history(ticker: str, start_key: str, interval: str) -> pd.DataFrame:
-    df = yf.download(ticker, start=start_key, interval=interval, progress=False)
+def _weights_key(tf_weights: dict) -> tuple[float, float, float]:
+    return (
+        float(tf_weights.get("Short", 0.0)),
+        float(tf_weights.get("Medium", 0.0)),
+        float(tf_weights.get("Long", 0.0)),
+    )
+
+
+def _download_history(ticker: str, start_key: str, interval: str, end_key: str | None = None) -> pd.DataFrame:
+    kwargs = {
+        "start": start_key,
+        "interval": interval,
+        "progress": False,
+    }
+    if end_key:
+        kwargs["end"] = end_key
+    df = yf.download(ticker, **kwargs)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index)
@@ -54,10 +71,58 @@ def _expected_min_rows(start: datetime, interval: str) -> int:
     return 1
 
 
+def _is_recent_enough(df: pd.DataFrame, interval: str) -> bool:
+    if df is None or df.empty:
+        return False
+    last_ts = pd.Timestamp(df.index.max())
+    if last_ts.tzinfo is not None:
+        last_naive = last_ts.tz_convert("UTC").tz_localize(None)
+    else:
+        last_naive = last_ts
+    now_utc = datetime.utcnow()
+    max_lag = timedelta(days=5) if interval == "1h" else timedelta(days=10)
+    return (now_utc - last_naive) <= max_lag
+
+
 def _is_sufficient(df: pd.DataFrame, start: datetime, interval: str) -> bool:
     if df is None or df.empty:
         return False
-    return len(df) >= _expected_min_rows(start, interval)
+    return len(df) >= _expected_min_rows(start, interval) and _is_recent_enough(df, interval)
+
+
+def _boundary_for_index(df: pd.DataFrame, start_key: str) -> pd.Timestamp:
+    ts = pd.Timestamp(start_key)
+    tz = getattr(df.index, "tz", None)
+    if tz is not None and ts.tzinfo is None:
+        return ts.tz_localize(tz)
+    if tz is None and ts.tzinfo is not None:
+        return ts.tz_convert(None)
+    return ts
+
+
+def _top_up_to_present(ticker: str, interval: str, df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+
+    last_ts = pd.Timestamp(df.index.max())
+    if last_ts.tzinfo is not None:
+        last_naive = last_ts.tz_convert("UTC").tz_localize(None)
+    else:
+        last_naive = last_ts
+
+    now_utc = datetime.utcnow()
+    freshness = timedelta(hours=3) if interval == "1h" else timedelta(days=1)
+    if now_utc - last_naive <= freshness:
+        return df
+
+    tail_start_key = last_naive.date().isoformat()
+    recent = _download_history(ticker, tail_start_key, interval)
+    if recent is None or recent.empty:
+        return df
+
+    merged = pd.concat([df, recent]).sort_index()
+    merged = merged[~merged.index.duplicated(keep="last")]
+    return merged
 
 
 def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
@@ -67,6 +132,51 @@ def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
         cached = _HISTORY_CACHE.get(key)
         if cached is not None and _is_sufficient(cached, start, interval):
             return cached.copy()
+        if cached is not None and not cached.empty:
+            topped = _top_up_to_present(ticker, interval, cached)
+            if _is_sufficient(topped, start, interval):
+                _HISTORY_CACHE[key] = topped.copy()
+                return topped.copy()
+
+        related = [
+            (k, v) for k, v in _HISTORY_CACHE.items()
+            if k[0] == ticker and k[2] == interval and v is not None and not v.empty
+        ]
+
+        # Reuse an existing cache that already starts earlier than requested.
+        covering = [
+            (k, v) for k, v in related
+            if pd.Timestamp(k[1]) <= pd.Timestamp(start_key)
+        ]
+        if covering:
+            best_key, best_df = max(covering, key=lambda kv: kv[0][1])
+            boundary = _boundary_for_index(best_df, start_key)
+            sliced = best_df[best_df.index >= boundary]
+            if not sliced.empty:
+                sliced = _top_up_to_present(ticker, interval, sliced)
+            if _is_sufficient(sliced, start, interval):
+                _HISTORY_CACHE[key] = sliced.copy()
+                return sliced.copy()
+
+        # If requested start is earlier than cached windows, fetch only the missing older segment.
+        later = [
+            (k, v) for k, v in related
+            if pd.Timestamp(k[1]) > pd.Timestamp(start_key)
+        ]
+        if later:
+            nearest_key, nearest_df = min(later, key=lambda kv: kv[0][1])
+            nearest_start = pd.Timestamp(nearest_key[1])
+            end_key = (nearest_start + pd.Timedelta(days=1)).date().isoformat()
+            older = _download_history(ticker, start_key, interval, end_key=end_key)
+            merged = pd.concat([older, nearest_df]).sort_index()
+            merged = merged[~merged.index.duplicated(keep="last")]
+            boundary = _boundary_for_index(merged, start_key)
+            merged = merged[merged.index >= boundary]
+            if not merged.empty:
+                merged = _top_up_to_present(ticker, interval, merged)
+            if _is_sufficient(merged, start, interval):
+                _HISTORY_CACHE[key] = merged.copy()
+                return merged.copy()
 
         df = _download_history(ticker, start_key, interval)
         if not _is_sufficient(df, start, interval):
@@ -164,6 +274,12 @@ def _signal_to_weight(signal: str) -> float:
 
 
 def _compute_signal(metal: str, daily_df: pd.DataFrame, hourly_df: pd.DataFrame, as_of_ts, tf_weights: dict) -> tuple[str, dict]:
+    cache_key = (metal, pd.Timestamp(as_of_ts).isoformat(), _weights_key(tf_weights))
+    with _SIGNAL_CACHE_LOCK:
+        cached = _SIGNAL_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
     long_df = daily_df[daily_df.index.date <= as_of_ts.date()]
     medium_df = long_df.tail(90)
     short_df = hourly_df[(hourly_df.index <= as_of_ts) & (hourly_df.index >= as_of_ts - timedelta(days=30))]
@@ -174,10 +290,18 @@ def _compute_signal(metal: str, daily_df: pd.DataFrame, hourly_df: pd.DataFrame,
     })
     prev_bar = _latest_before(hourly_df, as_of_ts)
     if prev_bar is None or long_df.empty:
-        return SIGNAL_NEUTRAL, {}
+        result = (SIGNAL_NEUTRAL, {})
+        with _SIGNAL_CACHE_LOCK:
+            _SIGNAL_CACHE[cache_key] = result
+        return result
     price_now = float(prev_bar["Close"])
     score = score_metal(long_df, fib, price_now, tf_weights=tf_weights)
-    return score.get("signal", SIGNAL_NEUTRAL), score
+    result = (score.get("signal", SIGNAL_NEUTRAL), score)
+    with _SIGNAL_CACHE_LOCK:
+        if len(_SIGNAL_CACHE) > 30000:
+            _SIGNAL_CACHE.clear()
+        _SIGNAL_CACHE[cache_key] = result
+    return result
 
 
 def _target_baseline(signal: str) -> float:
@@ -440,4 +564,6 @@ def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | Non
 def clear_simulator_caches() -> None:
     with _HISTORY_CACHE_LOCK:
         _HISTORY_CACHE.clear()
+    with _SIGNAL_CACHE_LOCK:
+        _SIGNAL_CACHE.clear()
     simulate_cached.cache_clear()
