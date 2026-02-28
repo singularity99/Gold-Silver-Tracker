@@ -20,18 +20,18 @@ STRENGTH_WEAK = "Weak"
 # Base weights sum to 100. Actual weights rescaled by configurable timeframe percentages.
 INDICATORS = [
     ("Fib Long-term (2yr)",    "Long",   5,  "Price Levels"),
-    ("Fib Medium-term (3mo)",  "Medium", 9,  "Price Levels"),
+    ("Fib Medium-term (3mo)",  "Medium", 9.25,  "Price Levels"),
     ("Fib Short-term (2-3wk)", "Short",  7,  "Price Levels"),
     ("Volatility Oscillator",  "Short",  8,  "Volatility"),
     ("Boom Hunter Pro (BHS)",  "Short",  11, "Trend (COG)"),
     ("EMA Crossover (9/21)",   "Short",  7,  "Trend (MA)"),
-    ("Hull Moving Average",    "Medium", 7,  "Trend (MA)"),
+    ("Hull Moving Average",    "Medium", 11.10,  "Trend (MA)"),
     ("Modified ATR",           "Long",   4,  "Volatility"),
-    ("Triangle Pattern",       "Medium", 6,  "Pattern"),
-    ("Bollinger Squeeze",      "Medium", 6,  "Volatility"),
+    ("Triangle Pattern",       "Medium", 5.55,  "Pattern"),
+    ("Bollinger Squeeze",      "Medium", 3.70,  "Volatility"),
     ("Momentum Bars (ROC)",    "Short",  8,  "Momentum"),
     ("Whale Volume",           "Short",  7,  "Volume"),
-    ("RSI (14)",               "Medium", 9,  "Momentum"),
+    ("RSI (14)",               "Medium", 7.40,  "Momentum"),
     ("SMA Crossover (20/50)",  "Long",   6,  "Trend (MA)"),
 ]
 
@@ -71,6 +71,33 @@ def _fib_vote(price: float, fib_levels: dict) -> tuple[int, str]:
     elif _price_near_fib_resistance(price, fib_levels):
         return -1, "Near resistance (bearish)"
     return 0, "Between levels"
+
+
+def _medium_fib_vote(price: float, prev_price: float | None, fib_levels: dict) -> tuple[int, str]:
+    if not fib_levels:
+        return 0, "No medium-term fib levels"
+    lvl_50 = fib_levels.get("50.0%")
+    lvl_38 = fib_levels.get("38.2%")
+    lvl_62 = fib_levels.get("61.8%")
+    if lvl_50 is None or lvl_38 is None or lvl_62 is None:
+        return _fib_vote(price, fib_levels)
+
+    confirmation_buffer = 0.002  # 0.2%
+    zone_low, zone_high = min(lvl_38, lvl_62), max(lvl_38, lvl_62)
+    in_congestion = zone_low <= price <= zone_high
+
+    above_now = price > lvl_50 * (1 + confirmation_buffer)
+    below_now = price < lvl_50 * (1 - confirmation_buffer)
+    above_prev = prev_price is not None and prev_price > lvl_50 * (1 + confirmation_buffer)
+    below_prev = prev_price is not None and prev_price < lvl_50 * (1 - confirmation_buffer)
+
+    if above_now and above_prev:
+        return 1, "Above 50% retracement with 2-bar hold (bullish)"
+    if below_now and below_prev:
+        return -1, "Below 50% retracement with 2-bar hold (bearish)"
+    if in_congestion:
+        return 0, "Between 38.2% and 61.8% retracement (congestion)"
+    return 0, "Around 50% retracement, awaiting confirmation"
 
 
 def _compute_raw_values(df: pd.DataFrame) -> dict:
@@ -192,9 +219,13 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     tf_map = {"long_term": "Fib Long-term (2yr)",
               "medium_term": "Fib Medium-term (3mo)",
               "short_term": "Fib Short-term (2-3wk)"}
+    prev_close = float(df["Close"].iloc[-2]) if len(df) > 1 else None
     for tf_key, ind_name in tf_map.items():
         fib_levels = fib_data.get(tf_key, {})
-        vote, detail = _fib_vote(current_price, fib_levels)
+        if tf_key == "medium_term":
+            vote, detail = _medium_fib_vote(current_price, prev_close, fib_levels)
+        else:
+            vote, detail = _fib_vote(current_price, fib_levels)
         votes[ind_name] = (vote, detail)
 
     # --- VOBHS components ---
@@ -217,10 +248,30 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
             votes["Boom Hunter Pro (BHS)"] = (boom_trend,
                 "Trigger above quotient (bullish trend)" if boom_trend == 1 else "Trigger below quotient (bearish trend)")
 
-        # Hull Moving Average
-        hma_last = int(vobhs["hma_signal"].iloc[-1])
-        votes["Hull Moving Average"] = (hma_last,
-            {1: "Price above HMA (bullish)", -1: "Price below HMA (bearish)", 0: "At HMA (neutral)"}.get(hma_last, "Neutral"))
+        # Hull Moving Average (medium-term trend filter with slope + distance buffer)
+        hma_series = vobhs["hull_ma"]
+        hma_now = float(hma_series.iloc[-1]) if len(hma_series) else np.nan
+        hma_prev5 = float(hma_series.iloc[-6]) if len(hma_series) > 5 else np.nan
+        close_now = float(df["Close"].iloc[-1])
+        if np.isnan(hma_now) or hma_now == 0 or np.isnan(hma_prev5) or hma_prev5 == 0:
+            hma_vote = 0
+            hma_detail = "Insufficient HMA data"
+        else:
+            gap_pct = (close_now - hma_now) / hma_now * 100
+            slope_pct = (hma_now - hma_prev5) / hma_prev5 * 100
+            if abs(gap_pct) <= 0.5 or abs(slope_pct) <= 0.1:
+                hma_vote = 0
+                hma_detail = f"Within HMA neutrality band (gap {gap_pct:+.2f}%, slope {slope_pct:+.2f}%)"
+            elif gap_pct > 0.5 and slope_pct > 0.1:
+                hma_vote = 1
+                hma_detail = f"Above HMA with positive slope (gap {gap_pct:+.2f}%, slope {slope_pct:+.2f}%)"
+            elif gap_pct < -0.5 and slope_pct < -0.1:
+                hma_vote = -1
+                hma_detail = f"Below HMA with negative slope (gap {gap_pct:+.2f}%, slope {slope_pct:+.2f}%)"
+            else:
+                hma_vote = 0
+                hma_detail = f"Price/slope mismatch vs HMA (gap {gap_pct:+.2f}%, slope {slope_pct:+.2f}%)"
+        votes["Hull Moving Average"] = (hma_vote, hma_detail)
 
         # Modified ATR -- now votes based on ATR trend (narrowing = bullish conviction, widening = caution)
         atr_series = vobhs["modified_atr"]["atr"]
@@ -250,12 +301,26 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     # --- Triangle Pattern ---
     tri = detect_triangles(df)
     if tri["pattern"] not in ("no_pattern", "insufficient_data"):
-        if tri.get("breakout_up"):
-            votes["Triangle Pattern"] = (1, f"{tri['pattern']} -- breakout UP")
-        elif tri.get("breakout_down"):
-            votes["Triangle Pattern"] = (-1, f"{tri['pattern']} -- breakout DOWN")
+        if len(df) > 1 and "resistance_line" in tri and "support_line" in tri:
+            breakout_buffer = 0.0025  # 0.25%
+            c_now = float(df["Close"].iloc[-1])
+            c_prev = float(df["Close"].iloc[-2])
+            r_now = float(tri["resistance_line"][-1])
+            r_prev = float(tri["resistance_line"][-2])
+            s_now = float(tri["support_line"][-1])
+            s_prev = float(tri["support_line"][-2])
+            bull_confirm = c_now > r_now * (1 + breakout_buffer) and c_prev > r_prev * (1 + breakout_buffer)
+            bear_confirm = c_now < s_now * (1 - breakout_buffer) and c_prev < s_prev * (1 - breakout_buffer)
         else:
-            votes["Triangle Pattern"] = (0, f"{tri['pattern']} -- consolidating (no breakout yet)")
+            bull_confirm = False
+            bear_confirm = False
+
+        if bull_confirm:
+            votes["Triangle Pattern"] = (1, f"{tri['pattern']} -- 2-bar bullish breakout confirmation")
+        elif bear_confirm:
+            votes["Triangle Pattern"] = (-1, f"{tri['pattern']} -- 2-bar bearish breakout confirmation")
+        else:
+            votes["Triangle Pattern"] = (0, f"{tri['pattern']} -- forming / no confirmed breakout")
     else:
         votes["Triangle Pattern"] = (0, "No triangle pattern detected")
 
@@ -263,14 +328,22 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     bsq = bollinger_squeeze(df)
     if not bsq.empty:
         squeeze_on = bool(bsq["squeeze_on"].iloc[-1])
-        bb_width = bsq["bb_width"].iloc[-1]
-        bb_width_avg = bsq["bb_width"].rolling(20).mean().iloc[-1] if len(bsq) >= 20 else bb_width
+        squeeze_recent = bool((bsq["squeeze_on"].tail(4)).any())
+        bb_width = float(bsq["bb_width"].iloc[-1])
+        bb_mid = float(bsq["bb_mid"].iloc[-1]) if "bb_mid" in bsq.columns and not np.isnan(bsq["bb_mid"].iloc[-1]) else np.nan
+        close_now = float(df["Close"].iloc[-1])
+        rsi_val = float(rsi(df["Close"]).iloc[-1]) if len(df) > 0 else np.nan
         if squeeze_on:
-            votes["Bollinger Squeeze"] = (1, f"Squeeze ON (bandwidth {bb_width:.4f}) -- expect breakout, bullish setup")
-        elif bb_width > bb_width_avg * 1.5:
-            votes["Bollinger Squeeze"] = (-1, f"Bands expanding ({bb_width:.4f}) -- volatile, potential reversal")
+            votes["Bollinger Squeeze"] = (0, f"Squeeze ON (bandwidth {bb_width:.4f}) -- compression regime")
+        elif squeeze_recent and not np.isnan(bb_mid) and not np.isnan(rsi_val):
+            if close_now > bb_mid and rsi_val >= 52:
+                votes["Bollinger Squeeze"] = (1, f"Post-squeeze release with RSI {rsi_val:.0f}>52 (bullish)")
+            elif close_now < bb_mid and rsi_val <= 48:
+                votes["Bollinger Squeeze"] = (-1, f"Post-squeeze release with RSI {rsi_val:.0f}<48 (bearish)")
+            else:
+                votes["Bollinger Squeeze"] = (0, f"Post-squeeze release but direction not confirmed (RSI {rsi_val:.0f})")
         else:
-            votes["Bollinger Squeeze"] = (0, f"Normal bandwidth ({bb_width:.4f})")
+            votes["Bollinger Squeeze"] = (0, f"No active post-squeeze directional regime ({bb_width:.4f})")
     else:
         votes["Bollinger Squeeze"] = (0, "Insufficient data")
 
@@ -305,15 +378,15 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     else:
         votes["Whale Volume"] = (0, "No volume data available")
 
-    # --- RSI ---
+    # --- RSI (medium momentum regime with hysteresis) ---
     rsi_val = rsi(df["Close"]).iloc[-1]
     if not np.isnan(rsi_val):
-        if rsi_val < 30:
-            votes["RSI (14)"] = (1, f"{rsi_val:.0f} -- oversold (bullish)")
-        elif rsi_val > 70:
-            votes["RSI (14)"] = (-1, f"{rsi_val:.0f} -- overbought (bearish)")
+        if rsi_val >= 52:
+            votes["RSI (14)"] = (1, f"{rsi_val:.0f} -- above 52 momentum regime (bullish)")
+        elif rsi_val <= 48:
+            votes["RSI (14)"] = (-1, f"{rsi_val:.0f} -- below 48 momentum regime (bearish)")
         else:
-            votes["RSI (14)"] = (0, f"{rsi_val:.0f} -- neutral")
+            votes["RSI (14)"] = (0, f"{rsi_val:.0f} -- 48-52 neutral hysteresis zone")
     else:
         votes["RSI (14)"] = (0, "Insufficient data")
 

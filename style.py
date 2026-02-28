@@ -610,6 +610,18 @@ def signal_card_html(metal, score, price_usd) -> str:
             )
         badges += f' <div class="badge-wrap"><span class="conflict-badge">{len(conflicts)} conflicting</span><div class="badge-panel">{conflict_tooltip}</div></div>'
 
+    overlay_note = ""
+    if score.get("macro_overlay"):
+        mo = score["macro_overlay"]
+        phase = mo.get("phase", "Unknown")
+        bias = mo.get("bias", 0.0)
+        raw_score = score.get("raw_composite_score", comp)
+        overlay_note = (
+            f'<div style="font-size:0.7rem;color:{TEXT_MUTED};margin-top:6px;">'
+            f'Macro overlay: {phase} (bias {bias:+.2f}) | Raw {raw_score:+.2f}'
+            f'</div>'
+        )
+
     return f"""
     <div class="signal-card {sig_cls}">
         <div class="signal-header">
@@ -623,6 +635,7 @@ def signal_card_html(metal, score, price_usd) -> str:
             {_sub("Medium", "Medium", score["timeframe_weights"]["Medium"])}
             {_sub("Long", "Long", score["timeframe_weights"]["Long"])}
         </div>
+        {overlay_note}
         <div>{badges}</div>
     </div>"""
 

@@ -252,6 +252,7 @@ def bollinger_squeeze(df: pd.DataFrame, bb_period: int = 20, bb_std: float = 2.0
     squeeze_off = (bb_lower < kc_lower) | (bb_upper > kc_upper)
 
     return pd.DataFrame({
+        "bb_mid": bb_mid,
         "bb_upper": bb_upper, "bb_lower": bb_lower, "bb_width": bb_width,
         "kc_upper": kc_upper, "kc_lower": kc_lower,
         "squeeze_on": squeeze_on, "squeeze_off": squeeze_off,

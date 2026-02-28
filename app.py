@@ -24,6 +24,7 @@ from portfolio import (
 from news import fetch_catalyst_news
 from analysis import generate_summary, build_context_prompt
 import chat
+from macro import get_macro_framework_state, apply_macro_overlay
 from style import (
     GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED,
     ticker_strip_html, signal_card_html, etc_tile_html,
@@ -90,6 +91,7 @@ def _normalise_config(config: dict | None) -> dict:
         "sma_fast": max(1, int(cfg.get("sma_fast", 20))),
         "sma_slow": max(1, int(cfg.get("sma_slow", 50))),
         "whale_vol_threshold": max(0.1, float(cfg.get("whale_vol_threshold", 2.0))),
+        "macro_overlay_enabled": bool(cfg.get("macro_overlay_enabled", True)),
         "tf_weights": _normalise_weights(cfg.get("tf_weights", DEFAULT_TF_WEIGHTS)),
         "profiles": cfg.get("profiles", {}) if isinstance(cfg.get("profiles", {}), dict) else {},
     }
@@ -115,6 +117,7 @@ def _set_state_from_config(config: dict):
     st.session_state["sma_fast"] = cfg["sma_fast"]
     st.session_state["sma_slow"] = cfg["sma_slow"]
     st.session_state["whale_vol_threshold"] = cfg["whale_vol_threshold"]
+    st.session_state["macro_overlay_enabled"] = cfg["macro_overlay_enabled"]
     st.session_state["profiles"] = cfg.get("profiles", {})
 
     w = cfg["tf_weights"]
@@ -142,6 +145,7 @@ def _state_config() -> dict:
         "sma_fast": st.session_state.get("sma_fast", 20),
         "sma_slow": st.session_state.get("sma_slow", 50),
         "whale_vol_threshold": st.session_state.get("whale_vol_threshold", 2.0),
+        "macro_overlay_enabled": st.session_state.get("macro_overlay_enabled", True),
         "tf_weights": _state_weights() if all(k in st.session_state for k in ("w_short", "w_medium", "w_long")) else DEFAULT_TF_WEIGHTS,
         "profiles": st.session_state.get("profiles", {}),
     })
@@ -278,6 +282,14 @@ whale_vol_threshold = st.sidebar.number_input(
     on_change=_persist_config,
 )
 
+st.sidebar.subheader("Macro Overlay")
+st.sidebar.checkbox(
+    "Enable macro regime overlay",
+    key="macro_overlay_enabled",
+    on_change=_persist_config,
+    help="Zeberg-inspired regime filter adjusts final signal thresholds and small phase bias.",
+)
+
 st.sidebar.subheader("Timeframe Weights")
 st.sidebar.slider("Short-term %", 0, 100, key="w_short", on_change=_rebalance, args=("w_short",))
 st.sidebar.slider("Medium-term %", 0, 100, key="w_medium", on_change=_rebalance, args=("w_medium",))
@@ -324,6 +336,12 @@ if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_
     st.session_state["total_pot_cfg"] = shared_total_pot
     st.session_state["_last_total_pot_synced"] = shared_total_pot
 st.sidebar.number_input("Total investment pot (GBP)", step=10_000.0, key="total_pot_cfg", on_change=_save_total_pot)
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _macro_state_cached():
+    return get_macro_framework_state()
+
 
 @st.cache_data(show_spinner=False)
 def _fetch_spot_cached():
@@ -384,6 +402,7 @@ tab_dashboard, tab_charts, tab_portfolio, tab_news, tab_simulator = st.tabs([
 with tab_dashboard:
     # Compute signals for both metals
     with st.spinner("Analysing markets..."):
+        macro_state = _macro_state_cached()
         gold_tf = fetch_multi_timeframe_data("GC=F")
         silver_tf = fetch_multi_timeframe_data("SI=F")
         gold_fib = multi_timeframe_fibonacci(gold_tf)
@@ -393,6 +412,34 @@ with tab_dashboard:
 
         gold_score = score_metal(gold_daily, gold_fib, spot["gold"]["price_usd"], tf_weight_config) if not gold_daily.empty else None
         silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"], tf_weight_config) if not silver_daily.empty else None
+
+        if st.session_state.get("macro_overlay_enabled", True):
+            if gold_score:
+                gold_score = apply_macro_overlay(gold_score, macro_state, "gold")
+            if silver_score:
+                silver_score = apply_macro_overlay(silver_score, macro_state, "silver")
+
+    if st.session_state.get("macro_overlay_enabled", True):
+        phase = macro_state.get("phase", "Unknown")
+        conf = macro_state.get("confidence", 0.0)
+        source = macro_state.get("source", "unknown")
+        st.info(
+            f"Macro overlay active: **{phase}** regime (confidence {conf:.0%}) | "
+            f"Leading {macro_state.get('leading_score', 0):+.2f}, "
+            f"Coincident {macro_state.get('coincident_score', 0):+.2f}, "
+            f"Imminent {macro_state.get('imminent_score', 0):+.2f} | Source: {source}"
+        )
+        with st.expander("Macro regime details (Zeberg-inspired)", expanded=False):
+            m = macro_state.get("metrics", {})
+            st.markdown(
+                f"- **Yield spread (10Y-2Y)**: {m.get('yield_spread_10y2y', float('nan')):.2f}\n"
+                f"- **Housing (6m %)**: {m.get('housing_6m_change', float('nan')):.1f}%\n"
+                f"- **Payrolls (6m %)**: {m.get('payroll_6m_change', float('nan')):.1f}%\n"
+                f"- **Industrial Production (6m %)**: {m.get('indpro_6m_change', float('nan')):.1f}%\n"
+                f"- **Claims stress (13w/52w)**: {m.get('claims_13w_52w_ratio', float('nan')):.2f}\n"
+                f"- **Sahm-like trigger**: {m.get('sahm_like', float('nan')):.2f}\n"
+                f"- **Fed Funds**: {m.get('fed_funds', float('nan')):.2f}% | **CPI YoY**: {m.get('cpi_yoy', float('nan')):.2f}%"
+            )
 
     alerts = []
     for metal_name, score_obj in (("gold", gold_score), ("silver", silver_score)):
@@ -431,23 +478,27 @@ with tab_dashboard:
             "Each of the 14 indicators votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
             "multiplied by its weight. The composite score is the weighted sum divided by 100. "
             "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range.\n\n"
+            "**Macro overlay (optional, Zeberg-inspired):**\n"
+            "- Regime classification: Expansion / Slowdown / Contraction / Recovery.\n"
+            "- Regime acts as a **modifier** (small score bias + adaptive thresholds), not a replacement for technical votes.\n"
+            "- Lower-layer signals (market/technicals) do not override higher-layer regime context.\n\n"
         )
         # Dynamic indicator table based on current weight config
         rescaled = _rescale_indicators(tf_weight_config)
         indicator_desc = {
             "Fib Long-term (2yr)": "Major structural support/resistance",
-            "Fib Medium-term (3mo)": "Current trend support/resistance",
+            "Fib Medium-term (3mo)": "3M structure: 50% hold/break with 2-bar confirmation",
             "Fib Short-term (2-3wk)": "Entry timing levels",
             "Volatility Oscillator": "Price acceleration breakouts",
             "Boom Hunter Pro (BHS)": "COG-based trend/reversal (Ehlers)",
             "EMA Crossover (9/21)": "Short-term trend direction",
-            "Hull Moving Average": "Medium-term trend (low-lag)",
+            "Hull Moving Average": "Medium trend filter (distance + slope)",
             "Modified ATR": "Volatility regime (narrow=conviction)",
-            "Triangle Pattern": "Chart pattern breakout detection",
-            "Bollinger Squeeze": "Volatility compression/expansion",
+            "Triangle Pattern": "Pattern breakout with 2-bar confirmation",
+            "Bollinger Squeeze": "Post-squeeze direction filter (with RSI)",
             "Momentum Bars (ROC)": "Rate of change direction/strength",
             "Whale Volume": "Institutional accumulation (volume spikes)",
-            "RSI (14)": "Overbought/oversold conditions",
+            "RSI (14)": "Momentum regime with 52/48 hysteresis",
             "SMA Crossover (20/50)": "Structural trend direction",
         }
         table = f"**{len(rescaled)} Indicators by Timeframe** (weights reflect current config)\n\n"
@@ -475,9 +526,7 @@ with tab_dashboard:
             table_df = pd.DataFrame(sc["indicator_table"])
             table_df["Conflict"] = table_df["Conflict"].map({True: "\u26a0\ufe0f", False: ""})
             if "Weight" in table_df.columns:
-                table_df["Weight"] = pd.to_numeric(table_df["Weight"], errors="coerce").apply(
-                    lambda x: int(np.ceil(x)) if pd.notna(x) else x
-                )
+                table_df["Weight"] = pd.to_numeric(table_df["Weight"], errors="coerce").round(1)
             def _color_vote(val):
                 if val == "Bullish": return "color: #26A69A"
                 elif val == "Bearish": return "color: #EF5350"

@@ -21,15 +21,49 @@ DEFAULT_ETC_TICKERS = {
 }
 
 
+def _safe_float(v, default=np.nan) -> float:
+    try:
+        if v is None:
+            return default
+        f = float(v)
+        return f
+    except Exception:
+        return default
+
+
+def _compute_change_pct(ticker: str, info, last_price: float) -> float:
+    change_pct = _safe_float(info.get("regularMarketChangePercent", np.nan), np.nan)
+    if not np.isnan(change_pct):
+        return change_pct
+
+    prev_close = _safe_float(info.get("regularMarketPreviousClose", np.nan), np.nan)
+    if np.isnan(prev_close):
+        prev_close = _safe_float(info.get("previousClose", np.nan), np.nan)
+    if not np.isnan(prev_close) and prev_close != 0 and not np.isnan(last_price):
+        return (last_price - prev_close) / prev_close * 100
+
+    try:
+        h = yf.Ticker(ticker).history(period="2d", interval="1d")
+        if len(h) >= 2:
+            prev = float(h["Close"].iloc[-2])
+            curr = float(h["Close"].iloc[-1])
+            if prev != 0:
+                return (curr - prev) / prev * 100
+    except Exception:
+        pass
+    return 0.0
+
+
 def fetch_spot_prices():
     """Fetch current spot prices for gold and silver, plus GBP/USD rate."""
     result = {}
     for metal, ticker in SPOT_TICKERS.items():
         try:
             info = yf.Ticker(ticker).fast_info
+            last_price = _safe_float(info.get("lastPrice", np.nan), np.nan)
             result[metal] = {
-                "price_usd": info["lastPrice"],
-                "change_pct": info.get("regularMarketChangePercent", 0.0),
+                "price_usd": last_price,
+                "change_pct": _compute_change_pct(ticker, info, last_price),
             }
         except Exception:
             result[metal] = {"price_usd": np.nan, "change_pct": 0.0}
@@ -65,10 +99,11 @@ def fetch_etc_prices(tickers: list[str]):
     for ticker in tickers:
         try:
             info = yf.Ticker(ticker).fast_info
+            last_price = _safe_float(info.get("lastPrice", np.nan), np.nan)
             result[ticker] = {
-                "price": info["lastPrice"],
+                "price": last_price,
                 "currency": info.get("currency", "GBp"),
-                "change_pct": info.get("regularMarketChangePercent", 0.0),
+                "change_pct": _compute_change_pct(ticker, info, last_price),
             }
         except Exception:
             result[ticker] = {"price": np.nan, "currency": "GBp", "change_pct": 0.0}

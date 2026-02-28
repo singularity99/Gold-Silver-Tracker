@@ -26,6 +26,7 @@ def generate_summary(metal: str, score: dict, price_usd: float) -> str:
     tf_weights = score["timeframe_weights"]
     conflicts = score["conflicts"]
     rows = score["indicator_table"]
+    macro_overlay = score.get("macro_overlay")
 
     # Count deteriorating / improving indicators
     deteriorating = [r for r in rows if "Deteriorating" in r.get("Direction", "")]
@@ -40,6 +41,12 @@ def generate_summary(metal: str, score: dict, price_usd: float) -> str:
     elif len(bearish_imp) >= 2:
         det_warning = " -- but recovering"
     headline = f"**{metal.title()}: {signal} ({composite:+.2f}){det_warning}**\n\n"
+
+    if macro_overlay:
+        phase = macro_overlay.get("phase", "Unknown")
+        bias = macro_overlay.get("bias", 0.0)
+        conf = macro_overlay.get("confidence", 0.0)
+        headline += f"Macro regime overlay: **{phase}** (bias {bias:+.2f}, confidence {conf:.0%}).\n\n"
 
     # Per-timeframe narratives
     tf_parts = []
@@ -70,6 +77,9 @@ def generate_summary(metal: str, score: dict, price_usd: float) -> str:
             narrative += f" -- {', '.join(drivers)}."
         else:
             narrative += " -- all neutral, no strong signals."
+
+        if tf == "Medium":
+            narrative += " Medium model uses HMA trend+slope, Fib 50% hold/break confirmation, triangle breakout confirmation, squeeze-release filter, and RSI 52/48 regime."
 
         if tf_det:
             names = [r["Indicator"].split("(")[0].strip() for r in tf_det]
@@ -140,6 +150,9 @@ def build_context_prompt(metal: str, score: dict, price_usd: float,
         "",
         "### Timeframe Sub-Scores",
     ]
+    if score.get("macro_overlay"):
+        mo = score["macro_overlay"]
+        lines.insert(4, f"Macro Overlay: {mo.get('phase','Unknown')} | Bias {mo.get('bias',0.0):+.2f} | Confidence {mo.get('confidence',0.0):.0%}")
     for tf in ("Short", "Medium", "Long"):
         val = round(score["timeframe_scores"][tf], 2)
         pct = score["timeframe_weights"][tf]
