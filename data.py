@@ -32,18 +32,19 @@ def _safe_float(v, default=np.nan) -> float:
 
 
 def _compute_change_pct(ticker: str, info, last_price: float) -> float:
-    change_pct = _safe_float(info.get("regularMarketChangePercent", np.nan), np.nan)
-    if not np.isnan(change_pct):
-        return change_pct
-
     prev_close = _safe_float(info.get("regularMarketPreviousClose", np.nan), np.nan)
     if np.isnan(prev_close):
         prev_close = _safe_float(info.get("previousClose", np.nan), np.nan)
     if not np.isnan(prev_close) and prev_close != 0 and not np.isnan(last_price):
         return (last_price - prev_close) / prev_close * 100
 
+    change_pct = _safe_float(info.get("regularMarketChangePercent", np.nan), np.nan)
+    if not np.isnan(change_pct):
+        # Some providers return decimal form (0.0123) instead of percent (1.23)
+        return change_pct * 100 if abs(change_pct) <= 1 else change_pct
+
     try:
-        h = yf.Ticker(ticker).history(period="2d", interval="1d")
+        h = yf.Ticker(ticker).history(period="7d", interval="1d")
         if len(h) >= 2:
             prev = float(h["Close"].iloc[-2])
             curr = float(h["Close"].iloc[-1])

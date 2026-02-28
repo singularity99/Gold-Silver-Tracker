@@ -488,9 +488,9 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
             <div class="ticker-change {chg_cls}">{chg}</div>
         </div>"""
 
-    gold_chg_str = f"{gold_chg:+.1f}%" if gold_chg == gold_chg else ""
+    gold_chg_str = f"{gold_chg:+.2f}%" if gold_chg == gold_chg else ""
     gold_chg_cls = _chg_class(gold_chg)
-    silver_chg_str = f"{silver_chg:+.1f}%" if silver_chg == silver_chg else ""
+    silver_chg_str = f"{silver_chg:+.2f}%" if silver_chg == silver_chg else ""
     silver_chg_cls = _chg_class(silver_chg)
     usd_inr_val = usd_inr if usd_inr and usd_inr == usd_inr else None
     gbp_inr_val = (gbp_usd * usd_inr) if usd_inr_val and gbp_usd == gbp_usd else None

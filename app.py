@@ -287,7 +287,7 @@ st.sidebar.checkbox(
     "Enable macro regime overlay",
     key="macro_overlay_enabled",
     on_change=_persist_config,
-    help="Zeberg-inspired regime filter adjusts final signal thresholds and small phase bias.",
+    help="Zeburg (TM)-inspired regime filter adjusts final signal thresholds and small phase bias.",
 )
 
 st.sidebar.subheader("Timeframe Weights")
@@ -343,12 +343,12 @@ def _macro_state_cached():
     return get_macro_framework_state()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def _fetch_spot_cached():
     return fetch_spot_prices()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def _fetch_etc_cached(tickers: tuple[str, ...]):
     return fetch_etc_prices(list(tickers)) if tickers else {}
 
@@ -419,7 +419,7 @@ with tab_dashboard:
             if silver_score:
                 silver_score = apply_macro_overlay(silver_score, macro_state, "silver")
 
-    st.subheader("Macro Business Indicators (Zeberg Lens)")
+    st.subheader("Macro Business Indicators (Zeburg (TM) Lens)")
     phase = macro_state.get("phase", "Unknown")
     conf = macro_state.get("confidence", 0.0)
     source = macro_state.get("source", "unknown")
@@ -513,7 +513,7 @@ with tab_dashboard:
             "Each of the 14 indicators votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
             "multiplied by its weight. The composite score is the weighted sum divided by 100. "
             "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range.\n\n"
-            "**Macro overlay (optional, Zeberg-inspired):**\n"
+            "**Macro overlay (optional, Zeburg (TM)-inspired):**\n"
             "- Regime classification: Expansion / Slowdown / Contraction / Recovery.\n"
             "- Regime acts as a **modifier** (small score bias + adaptive thresholds), not a replacement for technical votes.\n"
             "- Lower-layer signals (market/technicals) do not override higher-layer regime context.\n\n"
