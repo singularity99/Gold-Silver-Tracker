@@ -7,8 +7,13 @@ FRED_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv?id="
 
 FRED_SERIES = {
     "yield_spread_10y2y": "T10Y2Y",
-    "leading_index": "USSLIND",
+    "yield_spread_10y3m": "T10Y3M",
+    "building_permits": "PERMIT",
     "housing_starts": "HOUST",
+    "factory_orders": "AMTMNO",
+    "consumer_sentiment": "UMCSENT",
+    "credit_spread": "BAA10YM",
+    "financial_stress": "STLFSI4",
     "payrolls": "PAYEMS",
     "industrial_prod": "INDPRO",
     "initial_claims": "ICSA",
@@ -21,11 +26,12 @@ FRED_SERIES = {
 def _fetch_fred_series(series_id: str) -> pd.Series:
     try:
         df = pd.read_csv(FRED_BASE + series_id)
-        if "DATE" not in df.columns or series_id not in df.columns:
+        date_col = "DATE" if "DATE" in df.columns else ("observation_date" if "observation_date" in df.columns else None)
+        if date_col is None or series_id not in df.columns:
             return pd.Series(dtype=float)
-        df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
         df[series_id] = pd.to_numeric(df[series_id], errors="coerce")
-        s = df.dropna(subset=["DATE"]).set_index("DATE")[series_id].dropna()
+        s = df.dropna(subset=[date_col]).set_index(date_col)[series_id].dropna()
         return s.sort_index()
     except Exception:
         return pd.Series(dtype=float)
@@ -162,13 +168,16 @@ def _phase_from_scores(leading_score: float, coincident_score: float, imminent_s
 
 
 def _get_yahoo_proxy_state(asof=None) -> dict:
-    tickers = ["^TNX", "^IRX", "HG=F", "GC=F", "XHB", "XLI", "XLU", "IWM", "^GSPC", "^VIX", "HYG", "LQD"]
+    tickers = ["^TNX", "^IRX", "HG=F", "GC=F", "XHB", "ITB", "XLY", "XLP", "XLI", "XLU", "IWM", "^GSPC", "^VIX", "HYG", "LQD"]
     b = _fetch_yahoo_close_bundle(tickers)
 
     spread = _latest(b.get("^TNX", pd.Series(dtype=float)), asof) - _latest(b.get("^IRX", pd.Series(dtype=float)), asof)
     cgr = _slice_asof(b.get("HG=F", pd.Series(dtype=float)), asof) / _slice_asof(b.get("GC=F", pd.Series(dtype=float)), asof)
     cgr_3m = _pct_change(cgr, 63, asof)
     housing_6m = _pct_change(b.get("XHB", pd.Series(dtype=float)), 126, asof)
+    permits_6m = _pct_change(b.get("ITB", pd.Series(dtype=float)), 126, asof)
+    xly_xlp = _slice_asof(b.get("XLY", pd.Series(dtype=float)), asof) / _slice_asof(b.get("XLP", pd.Series(dtype=float)), asof)
+    sentiment_3m = _pct_change(xly_xlp, 63, asof)
 
     xli_xlu = _slice_asof(b.get("XLI", pd.Series(dtype=float)), asof) / _slice_asof(b.get("XLU", pd.Series(dtype=float)), asof)
     iwm_spx = _slice_asof(b.get("IWM", pd.Series(dtype=float)), asof) / _slice_asof(b.get("^GSPC", pd.Series(dtype=float)), asof)
@@ -178,19 +187,23 @@ def _get_yahoo_proxy_state(asof=None) -> dict:
     vix = _latest(b.get("^VIX", pd.Series(dtype=float)), asof)
     hyg_lqd = _slice_asof(b.get("HYG", pd.Series(dtype=float)), asof) / _slice_asof(b.get("LQD", pd.Series(dtype=float)), asof)
     hyg_lqd_3m = _pct_change(hyg_lqd, 63, asof)
+    hyg_lqd_1m = _pct_change(hyg_lqd, 21, asof)
 
     leading_votes = {
         "Yield curve proxy (^TNX-^IRX)": 1 if spread > 0.2 else (-1 if spread < -0.2 else 0),
-        "Copper/Gold ratio (3m)": 1 if cgr_3m > 2.0 else (-1 if cgr_3m < -2.0 else 0),
-        "Housing proxy XHB (6m)": 1 if housing_6m > 3.0 else (-1 if housing_6m < -3.0 else 0),
+        "Building permits proxy ITB (6m)": 1 if permits_6m > 3.0 else (-1 if permits_6m < -3.0 else 0),
+        "Housing starts proxy XHB (6m)": 1 if housing_6m > 3.0 else (-1 if housing_6m < -3.0 else 0),
+        "Consumer sentiment proxy XLY/XLP (3m)": 1 if sentiment_3m > 1.5 else (-1 if sentiment_3m < -1.5 else 0),
+        "Credit spread proxy HYG/LQD (3m)": 1 if hyg_lqd_3m > 1.0 else (-1 if hyg_lqd_3m < -1.0 else 0),
+        "Financial stress proxy VIX": 1 if vix <= 16 else (-1 if vix >= 25 else 0),
     }
     coincident_votes = {
         "XLI/XLU ratio (3m)": 1 if xli_xlu_3m > 1.5 else (-1 if xli_xlu_3m < -1.5 else 0),
         "IWM/SPX ratio (3m)": 1 if iwm_spx_3m > 1.0 else (-1 if iwm_spx_3m < -1.0 else 0),
     }
     imminent_votes = {
-        "VIX stress": -1 if vix >= 25 else (1 if vix <= 16 else 0),
-        "HYG/LQD stress (3m)": 1 if hyg_lqd_3m > 1.0 else (-1 if hyg_lqd_3m < -1.0 else 0),
+        "VIX spike risk": -1 if vix >= 30 else (1 if vix <= 14 else 0),
+        "Credit shock proxy HYG/LQD (1m)": 1 if hyg_lqd_1m > 1.5 else (-1 if hyg_lqd_1m < -1.5 else 0),
     }
 
     leading_score = float(np.mean(list(leading_votes.values()))) if leading_votes else 0.0
@@ -201,8 +214,13 @@ def _get_yahoo_proxy_state(asof=None) -> dict:
 
     metrics = {
         "yield_spread_10y2y": spread,
-        "ussli_26w_change": np.nan,
+        "yield_spread_10y3m": spread,
+        "building_permits_6m_change": permits_6m,
         "housing_6m_change": housing_6m,
+        "factory_orders_6m_change": np.nan,
+        "consumer_sentiment_6m_change": sentiment_3m,
+        "credit_spread_3m_change": hyg_lqd_3m,
+        "financial_stress_level": vix,
         "payroll_6m_change": np.nan,
         "indpro_6m_change": np.nan,
         "claims_13w_52w_ratio": np.nan,
@@ -211,6 +229,7 @@ def _get_yahoo_proxy_state(asof=None) -> dict:
         "fed_funds": np.nan,
         "vix": vix,
         "copper_gold_3m": cgr_3m,
+        "xly_xlp_3m": sentiment_3m,
         "xli_xlu_3m": xli_xlu_3m,
         "iwm_spx_3m": iwm_spx_3m,
         "hyg_lqd_3m": hyg_lqd_3m,
@@ -235,8 +254,14 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
         return _get_yahoo_proxy_state(asof)
 
     spread = _latest(b.get("yield_spread_10y2y", pd.Series(dtype=float)), asof)
-    ussli_chg_26w = _pct_change(b.get("leading_index", pd.Series(dtype=float)), 26, asof)
+    spread_10y3m = _latest(b.get("yield_spread_10y3m", pd.Series(dtype=float)), asof)
+    permits_chg_6m = _pct_change(b.get("building_permits", pd.Series(dtype=float)), 6, asof)
     housing_chg_6m = _pct_change(b.get("housing_starts", pd.Series(dtype=float)), 6, asof)
+    orders_chg_6m = _pct_change(b.get("factory_orders", pd.Series(dtype=float)), 6, asof)
+    sentiment_chg_6m = _pct_change(b.get("consumer_sentiment", pd.Series(dtype=float)), 6, asof)
+    credit_spread = _latest(b.get("credit_spread", pd.Series(dtype=float)), asof)
+    credit_spread_3m = _pct_change(b.get("credit_spread", pd.Series(dtype=float)), 3, asof)
+    stl_fsi = _latest(b.get("financial_stress", pd.Series(dtype=float)), asof)
 
     payroll_chg_6m = _pct_change(b.get("payrolls", pd.Series(dtype=float)), 6, asof)
     indpro_chg_6m = _pct_change(b.get("industrial_prod", pd.Series(dtype=float)), 6, asof)
@@ -256,9 +281,18 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
     def v_leading_spread(x):
         if np.isnan(x):
             return 0
-        if x > 0.25:
+        if x > 0.1:
             return 1
-        if x < -0.25:
+        if x < -0.1:
+            return -1
+        return 0
+
+    def v_leading_permits(x):
+        if np.isnan(x):
+            return 0
+        if x > 2.0:
+            return 1
+        if x < -5.0:
             return -1
         return 0
 
@@ -267,16 +301,43 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
             return 0
         if x > 2.0:
             return 1
-        if x < -2.0:
+        if x < -5.0:
             return -1
         return 0
 
-    def v_leading_ussli(x):
+    def v_leading_orders(x):
         if np.isnan(x):
             return 0
-        if x > 0.0:
+        if x > 1.0:
             return 1
-        if x < -0.5:
+        if x < -1.0:
+            return -1
+        return 0
+
+    def v_leading_sentiment(x):
+        if np.isnan(x):
+            return 0
+        if x > 1.0:
+            return 1
+        if x < -5.0:
+            return -1
+        return 0
+
+    def v_leading_credit(x):
+        if np.isnan(x):
+            return 0
+        if x <= -0.15:
+            return 1
+        if x >= 0.15:
+            return -1
+        return 0
+
+    def v_leading_stress(x):
+        if np.isnan(x):
+            return 0
+        if x <= 0.0:
+            return 1
+        if x >= 0.5:
             return -1
         return 0
 
@@ -317,9 +378,12 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
         return 0
 
     leading_votes = {
-        "Yield curve (10Y-2Y)": v_leading_spread(spread),
+        "Yield curve (10Y-3M)": v_leading_spread(spread_10y3m),
+        "Building permits (6m)": v_leading_permits(permits_chg_6m),
         "Housing starts (6m)": v_leading_housing(housing_chg_6m),
-        "USSLI (26w)": v_leading_ussli(ussli_chg_26w),
+        "Consumer sentiment (6m)": v_leading_sentiment(sentiment_chg_6m),
+        "Credit spread (3m change)": v_leading_credit(credit_spread_3m),
+        "St. Louis FSI": v_leading_stress(stl_fsi),
     }
     coincident_votes = {
         "Payrolls (6m)": v_coincident_payrolls(payroll_chg_6m),
@@ -349,8 +413,14 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
         imminent_votes,
         {
             "yield_spread_10y2y": spread,
-            "ussli_26w_change": ussli_chg_26w,
+            "yield_spread_10y3m": spread_10y3m,
+            "building_permits_6m_change": permits_chg_6m,
             "housing_6m_change": housing_chg_6m,
+            "factory_orders_6m_change": orders_chg_6m,
+            "consumer_sentiment_6m_change": sentiment_chg_6m,
+            "credit_spread_level": credit_spread,
+            "credit_spread_3m_change": credit_spread_3m,
+            "financial_stress_level": stl_fsi,
             "payroll_6m_change": payroll_chg_6m,
             "indpro_6m_change": indpro_chg_6m,
             "claims_13w_52w_ratio": claims_ratio,

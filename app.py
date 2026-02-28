@@ -454,7 +454,14 @@ with tab_dashboard:
         m = macro_state.get("metrics", {})
         metrics_df = pd.DataFrame([
             {"Metric": "Yield spread (10Y-2Y)", "Value": m.get("yield_spread_10y2y", np.nan)},
+            {"Metric": "Yield spread (10Y-3M)", "Value": m.get("yield_spread_10y3m", np.nan)},
+            {"Metric": "Building permits (6m %)", "Value": m.get("building_permits_6m_change", np.nan)},
             {"Metric": "Housing (6m %)", "Value": m.get("housing_6m_change", np.nan)},
+            {"Metric": "Factory orders (6m %)", "Value": m.get("factory_orders_6m_change", np.nan)},
+            {"Metric": "Consumer sentiment (6m %)", "Value": m.get("consumer_sentiment_6m_change", np.nan)},
+            {"Metric": "Credit spread level", "Value": m.get("credit_spread_level", np.nan)},
+            {"Metric": "Credit spread (3m %)", "Value": m.get("credit_spread_3m_change", np.nan)},
+            {"Metric": "St. Louis FSI", "Value": m.get("financial_stress_level", np.nan)},
             {"Metric": "Payrolls (6m %)", "Value": m.get("payroll_6m_change", np.nan)},
             {"Metric": "Industrial Production (6m %)", "Value": m.get("indpro_6m_change", np.nan)},
             {"Metric": "Claims stress (13w/52w)", "Value": m.get("claims_13w_52w_ratio", np.nan)},
