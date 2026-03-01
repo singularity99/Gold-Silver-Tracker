@@ -583,9 +583,7 @@ with tab_dashboard:
                       .applymap(_color_wscore, subset=["Weighted Score"])
                       .applymap(_color_direction, subset=["Direction"]))
             # Build column config with center alignment
-            col_config = {}
-            for c in cols:
-                col_config[c] = st.column_config.TextColumn(c, align="center")
+            col_config = {c: st.column_config.TextColumn(align="center") for c in cols}
             st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
             if sc["conflicts"]:
                 for c in sc["conflicts"]:
