@@ -581,14 +581,16 @@ with tab_dashboard:
             # Build HTML table with center alignment and compact styling
             html = '<table style="width:100%;border-collapse:collapse;text-align:center;font-size:0.8rem;">'
             html += '<thead><tr>'
-            for c in cols:
-                html += f'<th style="padding:4px 6px;border-bottom:1px solid #2D3139;text-align:center;color:#9CA3AF;font-size:0.7rem;font-weight:500;">{c}</th>'
+            for i, c in enumerate(cols):
+                align = "left" if i == 0 else "center"
+                html += f'<th style="padding:4px 6px;border-bottom:1px solid #2D3139;text-align:{align};color:#9CA3AF;font-size:0.7rem;font-weight:500;">{c}</th>'
             html += '</tr></thead><tbody>'
             for _, row in table_df.iterrows():
                 html += '<tr>'
-                for c in cols:
+                for i, c in enumerate(cols):
                     val = row[c]
-                    style = "padding:3px 6px;border-bottom:1px solid #2D3139;text-align:center;font-size:0.75rem;"
+                    align = "left" if i == 0 else "center"
+                    style = f"padding:3px 6px;border-bottom:1px solid #2D3139;text-align:{align};font-size:0.75rem;"
                     if c == "Vote":
                         color = "#26A69A" if val == "Bullish" else ("#EF5350" if val == "Bearish" else "#6B7280")
                         style += f"color:{color};font-weight:500;"
