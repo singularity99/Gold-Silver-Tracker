@@ -843,8 +843,17 @@ with tab_simulator:
         all_results = {}
         strat_options = ["baseline", "agree", "hysteresis", "banded", "confirm", "cooldown", "time_filter", "decay"]
         start_dt = datetime.combine(sim_start, datetime.min.time())
+        
         with st.status("Running all strategies...", expanded=True) as status:
-            for idx, strat in enumerate(strat_options, start=1):
+            # Run first strategy (this does the heavy lifting - data fetch + signal computation)
+            status.update(label=f"0% - Running baseline (fetching data & computing signals)...")
+            try:
+                all_results["baseline"] = run_simulations(start_dt, tf_weight_config, "baseline")
+            except Exception as e:
+                all_results["baseline"] = {"error": str(e)}
+            
+            # Remaining strategies use cached data/signals, so they're fast
+            for idx, strat in enumerate(strat_options[1:], start=2):
                 status.update(label=f"{int(idx/len(strat_options)*100)}% - Running {strat} ({idx}/{len(strat_options)})")
                 try:
                     all_results[strat] = run_simulations(start_dt, tf_weight_config, strat)

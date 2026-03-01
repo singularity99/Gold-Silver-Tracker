@@ -561,6 +561,77 @@ def run_simulations(start_date: datetime = START_DEFAULT, tf_weights: dict | Non
     return simulate(start=start_date, tf_weights=tf_weights or DEFAULT_TF_WEIGHTS, strategy=strategy)
 
 
+def prewarm_simulator_caches(start: datetime, tf_weights: dict, progress_callback=None) -> int:
+    """
+    Pre-fetch all data and pre-compute signals to warm caches.
+    This makes subsequent strategy runs very fast.
+    
+    Args:
+        start: Start date for simulation
+        tf_weights: Timeframe weights dict
+        progress_callback: Optional callback(status_text) for progress updates
+    
+    Returns:
+        Number of signals cached
+    """
+    start_buffer = start - timedelta(days=400)
+    weights_key = _weights_key(tf_weights)
+    
+    def update(msg):
+        if progress_callback:
+            progress_callback(msg)
+    
+    # Step 1: Fetch all historical data
+    update("Fetching gold daily data...")
+    gold_daily = _to_london(_fetch_history("GC=F", start_buffer, "1d"))
+    
+    update("Fetching silver daily data...")
+    silver_daily = _to_london(_fetch_history("SI=F", start_buffer, "1d"))
+    
+    update("Fetching gold hourly data...")
+    gold_hourly = _to_london(_fetch_history("GC=F", start, "1h"))
+    
+    update("Fetching silver hourly data...")
+    silver_hourly = _to_london(_fetch_history("SI=F", start, "1h"))
+    
+    update("Fetching FX data...")
+    fx_hourly = _to_london(_fetch_history(GBPUSD_TICKER, start, "1h"))
+    
+    if gold_hourly.empty or silver_hourly.empty:
+        update("No hourly data available")
+        return 0
+    
+    # Step 2: Pre-compute signals for all timestamps
+    # Note: simulation uses prev_idx (the bar before current), so we compute for all indices
+    hourly_index = gold_hourly.index.intersection(silver_hourly.index).intersection(fx_hourly.index)
+    hourly_index = hourly_index.sort_values()
+    
+    total = len(hourly_index) * 2  # gold + silver
+    cached = 0
+    
+    # Also need to pre-warm for intraday_short scenario which uses different weights
+    intraday_weights = {"Short": 100, "Medium": 0, "Long": 0}
+    intraday_weights_key = _weights_key(intraday_weights)
+    
+    for i, ts in enumerate(hourly_index):
+        # Compute signals using passed tf_weights (for morning/end_of_day scenarios)
+        _compute_signal("gold", gold_daily, gold_hourly, ts, tf_weights)
+        _compute_signal("silver", silver_daily, silver_hourly, ts, tf_weights)
+        cached += 2
+        
+        # Also compute for intraday_short weights (different cache key)
+        _compute_signal("gold", gold_daily, gold_hourly, ts, intraday_weights)
+        _compute_signal("silver", silver_daily, silver_hourly, ts, intraday_weights)
+        
+        # Update progress every 100 timestamps
+        if progress_callback and i % 100 == 0:
+            pct = int((i * 2) / total * 100)
+            update(f"Computing signals... {pct}% ({cached}/{total})")
+    
+    update(f"Cached {cached} signals")
+    return cached
+
+
 def clear_simulator_caches() -> None:
     with _HISTORY_CACHE_LOCK:
         _HISTORY_CACHE.clear()
