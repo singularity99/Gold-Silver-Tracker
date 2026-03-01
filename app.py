@@ -337,7 +337,8 @@ if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_
 st.sidebar.number_input("Total investment pot (GBP)", step=10_000.0, key="total_pot_cfg", on_change=_save_total_pot)
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
+# Cache macro state for 5 minutes (shorter TTL for responsiveness to crossovers)
+@st.cache_data(show_spinner=False, ttl=300)
 def _macro_state_cached():
     return get_macro_framework_state()
 
