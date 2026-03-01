@@ -309,6 +309,19 @@ h1, h2, h3 {{
     border-radius: 6px !important;
 }}
 
+/* ─── Dataframe centering ─── */
+.stDataFrame table,
+.stDataFrame th,
+.stDataFrame td {{
+    text-align: center !important;
+}}
+.stDataFrame thead th {{
+    text-align: center !important;
+}}
+.stDataFrame tbody td {{
+    text-align: center !important;
+}}
+
 /* ─── Mobile Responsive ─── */
 @media (max-width: 768px) {{
     .block-container {{
