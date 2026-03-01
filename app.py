@@ -578,20 +578,20 @@ with tab_dashboard:
             cols = ["Indicator", "Timeframe", "Vote", "Direction", "Weight", "Weighted Score", "Conflict", "Correlation Group", "Detail"]
             cols = [c for c in cols if c in table_df.columns]
             table_df = table_df[cols]
-            # Build HTML table with center alignment
-            html = '<table style="width:100%;border-collapse:collapse;text-align:center;">'
+            # Build HTML table with center alignment and compact styling
+            html = '<table style="width:100%;border-collapse:collapse;text-align:center;font-size:0.8rem;">'
             html += '<thead><tr>'
             for c in cols:
-                html += f'<th style="padding:8px;border-bottom:1px solid #2D3139;text-align:center;color:#9CA3AF;font-size:0.8rem;">{c}</th>'
+                html += f'<th style="padding:4px 6px;border-bottom:1px solid #2D3139;text-align:center;color:#9CA3AF;font-size:0.7rem;font-weight:500;">{c}</th>'
             html += '</tr></thead><tbody>'
             for _, row in table_df.iterrows():
                 html += '<tr>'
                 for c in cols:
                     val = row[c]
-                    style = "padding:8px;border-bottom:1px solid #2D3139;text-align:center;"
+                    style = "padding:3px 6px;border-bottom:1px solid #2D3139;text-align:center;font-size:0.75rem;"
                     if c == "Vote":
                         color = "#26A69A" if val == "Bullish" else ("#EF5350" if val == "Bearish" else "#6B7280")
-                        style += f"color:{color};font-weight:600;"
+                        style += f"color:{color};font-weight:500;"
                     elif c == "Weighted Score":
                         color = "#26A69A" if val > 0 else ("#EF5350" if val < 0 else "#6B7280")
                         style += f"color:{color};"
