@@ -431,47 +431,67 @@ with tab_dashboard:
         if not st.session_state.get("macro_overlay_enabled", True):
             st.caption("Macro overlay is disabled in Settings. This section is informational only.")
 
-        def _votes_df(votes: dict) -> pd.DataFrame:
-            rows = []
-            for k, v in votes.items():
-                rows.append({
-                    "Indicator": k,
-                    "Vote": "Bullish" if v > 0 else ("Bearish" if v < 0 else "Neutral"),
-                    "Score": int(v),
-                })
-            return pd.DataFrame(rows)
+        def _indicators_table(indicators: list) -> str:
+            """Build HTML table for crossover-based indicators."""
+            if not indicators:
+                return "<p style='color:#6B7280;'>No data</p>"
+            
+            html = '<table style="width:100%;border-collapse:collapse;font-size:0.75rem;">'
+            html += '<thead><tr style="border-bottom:1px solid #2D3139;">'
+            html += '<th style="text-align:left;padding:4px 6px;color:#9CA3AF;">Indicator</th>'
+            html += '<th style="text-align:center;padding:4px 6px;color:#9CA3AF;">Status</th>'
+            html += '<th style="text-align:left;padding:4px 6px;color:#9CA3AF;">Detail</th>'
+            html += '</tr></thead><tbody>'
+            
+            for ind in indicators:
+                name = ind.get("name", "Unknown")
+                status = ind.get("status", "Waiting")
+                detail = ind.get("detail", "")
+                vote = ind.get("vote", 0)
+                crossed = ind.get("crossed", False)
+                
+                # Color coding
+                if crossed:
+                    status_color = "#EF5350" if vote < 0 else "#26A69A"
+                    status_style = f"color:{status_color};font-weight:600;"
+                else:
+                    status_style = "color:#FFB300;"
+                
+                vote_color = "#26A69A" if vote > 0 else ("#EF5350" if vote < 0 else "#6B7280")
+                
+                html += '<tr style="border-bottom:1px solid #2D3139;">'
+                html += f'<td style="text-align:left;padding:3px 6px;">{name}</td>'
+                html += f'<td style="text-align:center;padding:3px 6px;{status_style}">{status}</td>'
+                html += f'<td style="text-align:left;padding:3px 6px;color:#6B7280;font-size:0.7rem;">{detail}</td>'
+                html += '</tr>'
+            
+            html += '</tbody></table>'
+            return html
 
         vcols = st.columns(3)
         vcols[0].markdown("**Leading**")
-        vcols[0].dataframe(_votes_df(macro_state.get("leading_votes", {})), use_container_width=True, hide_index=True)
+        vcols[0].markdown(_indicators_table(macro_state.get("leading_indicators", [])), unsafe_allow_html=True)
         vcols[1].markdown("**Coincident**")
-        vcols[1].dataframe(_votes_df(macro_state.get("coincident_votes", {})), use_container_width=True, hide_index=True)
+        vcols[1].markdown(_indicators_table(macro_state.get("coincident_indicators", [])), unsafe_allow_html=True)
         vcols[2].markdown("**Imminent Recession**")
-        vcols[2].dataframe(_votes_df(macro_state.get("imminent_votes", {})), use_container_width=True, hide_index=True)
+        vcols[2].markdown(_indicators_table(macro_state.get("imminent_indicators", [])), unsafe_allow_html=True)
 
         st.markdown("**Macro metrics detail**")
         m = macro_state.get("metrics", {})
         metrics_df = pd.DataFrame([
             {"Metric": "Yield spread (10Y-2Y)", "Value": m.get("yield_spread_10y2y", np.nan)},
             {"Metric": "Yield spread (10Y-3M)", "Value": m.get("yield_spread_10y3m", np.nan)},
-            {"Metric": "Building permits (6m %)", "Value": m.get("building_permits_6m_change", np.nan)},
-            {"Metric": "Housing (6m %)", "Value": m.get("housing_6m_change", np.nan)},
-            {"Metric": "Factory orders (6m %)", "Value": m.get("factory_orders_6m_change", np.nan)},
-            {"Metric": "Consumer sentiment (6m %)", "Value": m.get("consumer_sentiment_6m_change", np.nan)},
+            {"Metric": "Building permits cross (%)", "Value": m.get("building_permits_cross", np.nan)},
+            {"Metric": "Housing cross (%)", "Value": m.get("housing_cross", np.nan)},
+            {"Metric": "Claims ratio (13w/52w)", "Value": m.get("claims_ratio", np.nan)},
+            {"Metric": "Sahm value (pp)", "Value": m.get("sahm_value", np.nan)},
             {"Metric": "Credit spread level", "Value": m.get("credit_spread_level", np.nan)},
-            {"Metric": "Credit spread (3m %)", "Value": m.get("credit_spread_3m_change", np.nan)},
             {"Metric": "St. Louis FSI", "Value": m.get("financial_stress_level", np.nan)},
             {"Metric": "Payrolls (6m %)", "Value": m.get("payroll_6m_change", np.nan)},
             {"Metric": "Industrial Production (6m %)", "Value": m.get("indpro_6m_change", np.nan)},
-            {"Metric": "Claims stress (13w/52w)", "Value": m.get("claims_13w_52w_ratio", np.nan)},
-            {"Metric": "Sahm-like trigger", "Value": m.get("sahm_like", np.nan)},
-            {"Metric": "Fed Funds", "Value": m.get("fed_funds", np.nan)},
-            {"Metric": "CPI YoY", "Value": m.get("cpi_yoy", np.nan)},
-            {"Metric": "VIX", "Value": m.get("vix", np.nan)},
-            {"Metric": "Copper/Gold (3m %)", "Value": m.get("copper_gold_3m", np.nan)},
-            {"Metric": "XLI/XLU (3m %)", "Value": m.get("xli_xlu_3m", np.nan)},
-            {"Metric": "IWM/SPX (3m %)", "Value": m.get("iwm_spx_3m", np.nan)},
-            {"Metric": "HYG/LQD (3m %)", "Value": m.get("hyg_lqd_3m", np.nan)},
+            {"Metric": "Unemployment (%)", "Value": m.get("unemployment", np.nan)},
+            {"Metric": "Fed Funds (%)", "Value": m.get("fed_funds", np.nan)},
+            {"Metric": "CPI YoY (%)", "Value": m.get("cpi_yoy", np.nan)},
         ])
         st.dataframe(metrics_df, use_container_width=True, hide_index=True)
 
