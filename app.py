@@ -578,19 +578,32 @@ with tab_dashboard:
             cols = ["Indicator", "Timeframe", "Vote", "Direction", "Weight", "Weighted Score", "Conflict", "Correlation Group", "Detail"]
             cols = [c for c in cols if c in table_df.columns]
             table_df = table_df[cols]
-            styled = (table_df.style
-                      .applymap(_color_vote, subset=["Vote"])
-                      .applymap(_color_wscore, subset=["Weighted Score"])
-                      .applymap(_color_direction, subset=["Direction"]))
-            st.markdown("""
-            <style>
-            div[data-testid="stDataFrame"] table thead th, 
-            div[data-testid="stDataFrame"] table tbody td {
-                text-align: center !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            st.dataframe(styled, use_container_width=True, hide_index=True)
+            # Build HTML table with center alignment
+            html = '<table style="width:100%;border-collapse:collapse;text-align:center;">'
+            html += '<thead><tr>'
+            for c in cols:
+                html += f'<th style="padding:8px;border-bottom:1px solid #2D3139;text-align:center;color:#9CA3AF;font-size:0.8rem;">{c}</th>'
+            html += '</tr></thead><tbody>'
+            for _, row in table_df.iterrows():
+                html += '<tr>'
+                for c in cols:
+                    val = row[c]
+                    style = "padding:8px;border-bottom:1px solid #2D3139;text-align:center;"
+                    if c == "Vote":
+                        color = "#26A69A" if val == "Bullish" else ("#EF5350" if val == "Bearish" else "#6B7280")
+                        style += f"color:{color};font-weight:600;"
+                    elif c == "Weighted Score":
+                        color = "#26A69A" if val > 0 else ("#EF5350" if val < 0 else "#6B7280")
+                        style += f"color:{color};"
+                    elif c == "Direction":
+                        if "Improving" in str(val):
+                            style += "color:#26A69A;"
+                        elif "Deteriorating" in str(val):
+                            style += "color:#EF5350;"
+                    html += f'<td style="{style}">{val}</td>'
+                html += '</tr>'
+            html += '</tbody></table>'
+            st.html(html)
             if sc["conflicts"]:
                 for c in sc["conflicts"]:
                     st.caption(
