@@ -50,6 +50,22 @@ def _weights_key(tf_weights: dict) -> tuple[float, float, float]:
     )
 
 
+def _download_history(ticker: str, start_key: str, interval: str, end_key: str | None = None) -> pd.DataFrame:
+    """Download history from Yahoo Finance."""
+    kwargs = {
+        "start": start_key,
+        "interval": interval,
+        "progress": False,
+    }
+    if end_key:
+        kwargs["end"] = end_key
+    df = yf.download(ticker, **kwargs)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.index = pd.to_datetime(df.index)
+    return df
+
+
 def _expected_min_rows(start: datetime, interval: str) -> int:
     days = max((datetime.utcnow().date() - start.date()).days, 1)
     if interval == "1h":
