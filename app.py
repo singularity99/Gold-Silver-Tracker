@@ -603,16 +603,7 @@ with tab_dashboard:
                       .applymap(_color_vote, subset=["Vote"])
                       .applymap(_color_wscore, subset=["Weighted Score"])
                       .applymap(_color_direction, subset=["Direction"]))
-            st.dataframe(styled, use_container_width=True, hide_index=True,
-                         column_config={"Indicator": st.column_config.TextColumn("Indicator", width="medium"),
-                                        "Timeframe": st.column_config.TextColumn("Timeframe", width="small", align="center"),
-                                        "Vote": st.column_config.TextColumn("Vote", width="small", align="center"),
-                                        "Direction": st.column_config.TextColumn("Direction", width="small", align="center"),
-                                        "Weight": st.column_config.NumberColumn("Weight", width="small", align="center"),
-                                        "Weighted Score": st.column_config.NumberColumn("Weighted Score", width="small", align="center"),
-                                        "Conflict": st.column_config.TextColumn("Conflict", width="small", align="center"),
-                                        "Correlation Group": st.column_config.TextColumn("Correlation Group", width="small", align="center"),
-                                        "Detail": st.column_config.TextColumn("Detail", width="large")})
+            st.dataframe(styled, use_container_width=True, hide_index=True)
             if sc["conflicts"]:
                 for c in sc["conflicts"]:
                     st.caption(
