@@ -581,7 +581,8 @@ with tab_dashboard:
             styled = (table_df.style
                       .applymap(_color_vote, subset=["Vote"])
                       .applymap(_color_wscore, subset=["Weighted Score"])
-                      .applymap(_color_direction, subset=["Direction"]))
+                      .applymap(_color_direction, subset=["Direction"])
+                      .set_properties(**{"text-align": "center"}))
             st.dataframe(styled, use_container_width=True, hide_index=True)
             if sc["conflicts"]:
                 for c in sc["conflicts"]:
