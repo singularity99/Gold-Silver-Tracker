@@ -582,7 +582,7 @@ with tab_dashboard:
                       .applymap(_color_vote, subset=["Vote"])
                       .applymap(_color_wscore, subset=["Weighted Score"])
                       .applymap(_color_direction, subset=["Direction"])
-                      .set_properties(**{"text-align": "center"}))
+                      .set_table_styles([{"selector": "th, td", "props": [("text-align", "center")]}]))
             st.dataframe(styled, use_container_width=True, hide_index=True)
             if sc["conflicts"]:
                 for c in sc["conflicts"]:
