@@ -582,9 +582,15 @@ with tab_dashboard:
                       .applymap(_color_vote, subset=["Vote"])
                       .applymap(_color_wscore, subset=["Weighted Score"])
                       .applymap(_color_direction, subset=["Direction"]))
-            # Build column config with center alignment
-            col_config = {c: st.column_config.TextColumn(align="center") for c in cols}
-            st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
+            st.markdown("""
+            <style>
+            div[data-testid="stDataFrame"] table thead th, 
+            div[data-testid="stDataFrame"] table tbody td {
+                text-align: center !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            st.dataframe(styled, use_container_width=True, hide_index=True)
             if sc["conflicts"]:
                 for c in sc["conflicts"]:
                     st.caption(
