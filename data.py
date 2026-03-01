@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from threading import Lock
 
 
 SPOT_TICKERS = {
@@ -19,6 +20,50 @@ DEFAULT_ETC_TICKERS = {
     "SGLS.L": "iShares Physical Gold (GBP Hedged)",
     "SLVP.L": "iShares Physical Silver (GBP Hedged)",
 }
+
+# Shared history cache for both dashboard and simulator
+_HISTORY_CACHE: dict[tuple[str, str, str], pd.DataFrame] = {}
+_HISTORY_CACHE_LOCK = Lock()
+
+
+def _download_history(ticker: str, start_key: str, interval: str, end_key: str | None = None) -> pd.DataFrame:
+    """Download history from Yahoo Finance."""
+    kwargs = {
+        "start": start_key,
+        "interval": interval,
+        "progress": False,
+    }
+    if end_key:
+        kwargs["end"] = end_key
+    df = yf.download(ticker, **kwargs)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.index = pd.to_datetime(df.index)
+    return df
+
+
+def fetch_history_cached(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
+    """Fetch history with caching. Used by both dashboard and simulator."""
+    start_key = start.date().isoformat()
+    key = (ticker, start_key, interval)
+    
+    with _HISTORY_CACHE_LOCK:
+        cached = _HISTORY_CACHE.get(key)
+        if cached is not None and not cached.empty:
+            return cached.copy()
+    
+    df = _download_history(ticker, start_key, interval)
+    
+    with _HISTORY_CACHE_LOCK:
+        _HISTORY_CACHE[key] = df.copy()
+    
+    return df
+
+
+def clear_history_cache():
+    """Clear the shared history cache."""
+    with _HISTORY_CACHE_LOCK:
+        _HISTORY_CACHE.clear()
 
 
 def _safe_float(v, default=np.nan) -> float:
@@ -112,26 +157,45 @@ def fetch_etc_prices(tickers: list[str]):
 
 
 def fetch_historical(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
-    """Fetch OHLCV historical data for a given ticker."""
+    """Fetch OHLCV historical data for a given ticker. Uses shared cache."""
+    start = datetime.utcnow() - timedelta(days={
+        "2y": 730, "3mo": 90, "1mo": 30, "1w": 7
+    }.get(period, 730))
+    
+    # Check cache first
+    start_key = start.date().isoformat()
+    key = (ticker, start_key, interval)
+    
+    with _HISTORY_CACHE_LOCK:
+        cached = _HISTORY_CACHE.get(key)
+        if cached is not None and not cached.empty:
+            return cached.copy()
+    
     try:
         df = yf.download(ticker, period=period, interval=interval, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df.index = pd.to_datetime(df.index)
+        
+        with _HISTORY_CACHE_LOCK:
+            _HISTORY_CACHE[key] = df.copy()
+        
         return df
     except Exception:
         return pd.DataFrame()
 
 
 def fetch_multi_timeframe_data(ticker: str):
-    """Fetch historical data at three timeframes for Fibonacci + technicals."""
-    long_term = fetch_historical(ticker, period="2y", interval="1d")
-    medium_term = fetch_historical(ticker, period="3mo", interval="1d")
-    short_term = fetch_historical(ticker, period="1mo", interval="1h")
+    """Fetch historical data at three timeframes for Fibonacci + technicals. Uses shared cache."""
+    now = datetime.utcnow()
+    long_start = now - timedelta(days=730)
+    med_start = now - timedelta(days=90)
+    short_start = now - timedelta(days=30)
+    
     return {
-        "long_term": long_term,
-        "medium_term": medium_term,
-        "short_term": short_term,
+        "long_term": fetch_history_cached(ticker, long_start, "1d"),
+        "medium_term": fetch_history_cached(ticker, med_start, "1d"),
+        "short_term": fetch_history_cached(ticker, short_start, "1h"),
     }
 
 

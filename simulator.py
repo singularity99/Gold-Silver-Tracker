@@ -18,6 +18,9 @@ from signals import (
     precompute_indicators,
     clear_precomputed_cache,
 )
+from data import (
+    _HISTORY_CACHE, _HISTORY_CACHE_LOCK, fetch_history_cached, clear_history_cache
+)
 
 GBPUSD_TICKER = "GBPUSD=X"
 START_DEFAULT = datetime(2026, 1, 1)
@@ -34,9 +37,7 @@ TARGET_ALLOC = {
     SIGNAL_STRONG_SELL: 0.30,
 }
 
-
-_HISTORY_CACHE: dict[tuple[str, str, str], pd.DataFrame] = {}
-_HISTORY_CACHE_LOCK = Lock()
+# Signal cache is still local to simulator
 _SIGNAL_CACHE: dict[tuple[str, str, tuple[float, float, float]], tuple[str, dict]] = {}
 _SIGNAL_CACHE_LOCK = Lock()
 
@@ -47,21 +48,6 @@ def _weights_key(tf_weights: dict) -> tuple[float, float, float]:
         float(tf_weights.get("Medium", 0.0)),
         float(tf_weights.get("Long", 0.0)),
     )
-
-
-def _download_history(ticker: str, start_key: str, interval: str, end_key: str | None = None) -> pd.DataFrame:
-    kwargs = {
-        "start": start_key,
-        "interval": interval,
-        "progress": False,
-    }
-    if end_key:
-        kwargs["end"] = end_key
-    df = yf.download(ticker, **kwargs)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df.index = pd.to_datetime(df.index)
-    return df
 
 
 def _expected_min_rows(start: datetime, interval: str) -> int:
@@ -640,8 +626,8 @@ def prewarm_simulator_caches(start: datetime, tf_weights: dict, progress_callbac
 
 
 def clear_simulator_caches() -> None:
-    with _HISTORY_CACHE_LOCK:
-        _HISTORY_CACHE.clear()
+    """Clear all simulator caches including shared history cache."""
+    clear_history_cache()  # Clear shared cache from data.py
     with _SIGNAL_CACHE_LOCK:
         _SIGNAL_CACHE.clear()
     simulate_cached.cache_clear()
