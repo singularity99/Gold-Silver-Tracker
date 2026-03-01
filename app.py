@@ -862,16 +862,16 @@ with tab_simulator:
     if run_all:
         all_results = {}
         strat_options = ["baseline", "agree", "hysteresis", "banded", "confirm", "cooldown", "time_filter", "decay"]
-        with st.spinner("Running all strategies across all scenarios..."):
-            start_dt = datetime.combine(sim_start, datetime.min.time())
-            prog = st.progress(0.0, text="Starting strategy batch...")
-            for idx, strat in enumerate(strat_options, start=1):
-                try:
-                    all_results[strat] = run_simulations(start_dt, tf_weight_config, strat)
-                except Exception as e:
-                    all_results[strat] = {"error": str(e)}
-                prog.progress(idx / len(strat_options), text=f"Running {strat} ({idx}/{len(strat_options)})")
-            prog.empty()
+        start_dt = datetime.combine(sim_start, datetime.min.time())
+        prog = st.progress(0.0, text="0% - Starting strategy batch...")
+        for idx, strat in enumerate(strat_options, start=1):
+            try:
+                all_results[strat] = run_simulations(start_dt, tf_weight_config, strat)
+            except Exception as e:
+                all_results[strat] = {"error": str(e)}
+            pct = int(idx / len(strat_options) * 100)
+            prog.progress(idx / len(strat_options), text=f"{pct}% - {strat} ({idx}/{len(strat_options)})")
+        prog.empty()
         st.session_state["all_sim_results"] = all_results
 
     sim_results = st.session_state.get("sim_results")
