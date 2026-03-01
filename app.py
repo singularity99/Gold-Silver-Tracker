@@ -542,7 +542,7 @@ with tab_dashboard:
         for i, (name, tf, weight, _) in enumerate(rescaled, 1):
             base = next(w for n, _, w, _ in INDICATORS if n == name)
             total_scaled += weight
-            table += f"| {i} | {name} | {tf} | {base} | {weight:.1f} | {indicator_desc.get(name, '')} |\n"
+            table += f"| {i} | {name} | {tf} | {base} | {int(round(weight))} | {indicator_desc.get(name, '')} |\n"
         table += f"| | **Total** | | **100** | **{total_scaled:.0f}** | |\n"
         table += (
             f"\n**Timeframe weights**: Short {tf_weight_config['Short']}% "
@@ -560,7 +560,9 @@ with tab_dashboard:
             table_df = pd.DataFrame(sc["indicator_table"])
             table_df["Conflict"] = table_df["Conflict"].map({True: "\u26a0\ufe0f", False: ""})
             if "Weight" in table_df.columns:
-                table_df["Weight"] = pd.to_numeric(table_df["Weight"], errors="coerce").round(1)
+                table_df["Weight"] = pd.to_numeric(table_df["Weight"], errors="coerce").round(0).astype(int)
+            if "Weighted Score" in table_df.columns:
+                table_df["Weighted Score"] = pd.to_numeric(table_df["Weighted Score"], errors="coerce").round(0).astype(int)
             def _color_vote(val):
                 if val == "Bullish": return "color: #26A69A"
                 elif val == "Bearish": return "color: #EF5350"
