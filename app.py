@@ -583,8 +583,7 @@ with tab_dashboard:
             html += '<thead><tr>'
             for i, c in enumerate(cols):
                 align = "left" if i == 0 or i == len(cols) - 1 else "center"
-                width_style = "min-width:180px;white-space:nowrap;" if i == 0 else ""
-                html += f'<th style="padding:4px 6px;border-bottom:1px solid #2D3139;text-align:{align};color:#9CA3AF;font-size:0.8rem;font-weight:500;{width_style}">{c}</th>'
+                html += f'<th style="padding:4px 6px;border-bottom:1px solid #2D3139;text-align:{align};color:#9CA3AF;font-size:0.8rem;font-weight:500;">{c}</th>'
             html += '</tr></thead><tbody>'
             for _, row in table_df.iterrows():
                 html += '<tr>'
