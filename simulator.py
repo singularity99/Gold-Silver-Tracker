@@ -15,6 +15,8 @@ from signals import (
     SIGNAL_NEUTRAL,
     SIGNAL_SELL,
     SIGNAL_STRONG_SELL,
+    precompute_indicators,
+    clear_precomputed_cache,
 )
 
 GBPUSD_TICKER = "GBPUSD=X"
@@ -396,6 +398,11 @@ def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights: dict,
     silver_hourly = _to_london(_fetch_history("SI=F", start, "1h"))
     fx_hourly = _to_london(_fetch_history(GBPUSD_TICKER, start, "1h"))
 
+    # Precompute indicators once for faster batch processing
+    gold_daily_pc = precompute_indicators(gold_daily)
+    silver_daily_pc = precompute_indicators(silver_daily)
+    clear_precomputed_cache()  # Clear cache to avoid memory buildup
+
     results = {}
     scenario_states = {scenario: {
         "gold": {"last_target": 0.0, "cooldown": 0, "bull_count": 0, "consec_short": 0, "consec_med": 0, "prev_short": None},
@@ -430,8 +437,8 @@ def _simulate_with_cache(start: datetime, initial_cash: float, tf_weights: dict,
             prev_idx = hourly_index[hourly_index.get_loc(ts) - 1] if hourly_index.get_loc(ts) > 0 else None
             if prev_idx is None:
                 continue
-            gold_sig, gold_score = _compute_signal("gold", gold_daily, gold_hourly, prev_idx, scenario_tf_weights)
-            silver_sig, silver_score = _compute_signal("silver", silver_daily, silver_hourly, prev_idx, scenario_tf_weights)
+            gold_sig, gold_score = _compute_signal("gold", gold_daily_pc, gold_hourly, prev_idx, scenario_tf_weights)
+            silver_sig, silver_score = _compute_signal("silver", silver_daily_pc, silver_hourly, prev_idx, scenario_tf_weights)
 
             def _pick_target(metal_signal: str, metal_score: dict, metal: str) -> float:
                 state = scenario_states[scenario][metal]
@@ -638,3 +645,4 @@ def clear_simulator_caches() -> None:
     with _SIGNAL_CACHE_LOCK:
         _SIGNAL_CACHE.clear()
     simulate_cached.cache_clear()
+    clear_precomputed_cache()

@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
+import pandas as pd
 from technicals import (
     multi_timeframe_fibonacci, vobhs_composite, detect_triangles,
     bollinger_squeeze, momentum_bars, whale_volume_detection,
-    rsi, sma_crossover, ema_crossover, FIBONACCI_RATIOS,
+    rsi, sma_crossover, ema_crossover, fibonacci_levels, FIBONACCI_RATIOS,
 )
 
 SIGNAL_STRONG_BUY = "Strong Buy"
@@ -101,61 +102,115 @@ def _medium_fib_vote(price: float, prev_price: float | None, fib_levels: dict) -
 
 
 def _compute_raw_values(df: pd.DataFrame) -> dict:
-    """Extract the raw numeric value for each indicator at the last bar and a lookback bar."""
+    """Extract the raw numeric value for each indicator at the last bar and a lookback bar.
+    Uses precomputed '_ind_*' columns if present for faster batch processing.
+    """
     vals = {}
     if len(df) < 10:
         return vals
     close = df["Close"]
-
+    has_precomputed = any(c.startswith("_ind_") for c in df.columns)
+    
     # Momentum ROC
-    mom = momentum_bars(df)
-    if not mom.empty and not np.isnan(mom["roc"].iloc[-1]):
-        vals["Momentum Bars (ROC)"] = (mom["roc"].iloc[-1], mom["roc"].iloc[-6] if len(mom) > 6 else mom["roc"].iloc[0])
+    if has_precomputed and "_ind_roc" in df.columns:
+        roc_now = df["_ind_roc"].iloc[-1]
+        roc_prev = df["_ind_roc_prev"].iloc[-1] if "_ind_roc_prev" in df.columns else roc_now
+        if not np.isnan(roc_now):
+            vals["Momentum Bars (ROC)"] = (roc_now, roc_prev)
+    else:
+        mom = momentum_bars(df)
+        if not mom.empty and not np.isnan(mom["roc"].iloc[-1]):
+            vals["Momentum Bars (ROC)"] = (mom["roc"].iloc[-1], mom["roc"].iloc[-6] if len(mom) > 6 else mom["roc"].iloc[0])
 
     # RSI
-    rsi_series = rsi(close)
-    if not rsi_series.empty and not np.isnan(rsi_series.iloc[-1]):
-        vals["RSI (14)"] = (rsi_series.iloc[-1], rsi_series.iloc[-6] if len(rsi_series) > 6 else rsi_series.iloc[0])
+    if has_precomputed and "_ind_rsi" in df.columns:
+        rsi_now = df["_ind_rsi"].iloc[-1]
+        rsi_prev = df["_ind_rsi_prev"].iloc[-1] if "_ind_rsi_prev" in df.columns else rsi_now
+        if not np.isnan(rsi_now):
+            vals["RSI (14)"] = (rsi_now, rsi_prev)
+    else:
+        rsi_series = rsi(close)
+        if not rsi_series.empty and not np.isnan(rsi_series.iloc[-1]):
+            vals["RSI (14)"] = (rsi_series.iloc[-1], rsi_series.iloc[-6] if len(rsi_series) > 6 else rsi_series.iloc[0])
 
     # EMA gap (fast - slow)
-    ema_data = ema_crossover(close)
-    if not ema_data.empty:
-        gap_now = ema_data["ema_9"].iloc[-1] - ema_data["ema_21"].iloc[-1]
-        gap_prev = ema_data["ema_9"].iloc[-6] - ema_data["ema_21"].iloc[-6] if len(ema_data) > 6 else gap_now
+    if has_precomputed and "_ind_ema_gap" in df.columns:
+        gap_now = df["_ind_ema_gap"].iloc[-1]
+        gap_prev = df["_ind_ema_gap_prev"].iloc[-1] if "_ind_ema_gap_prev" in df.columns else gap_now
         vals["EMA Crossover (9/21)"] = (gap_now, gap_prev)
+    else:
+        ema_data = ema_crossover(close)
+        if not ema_data.empty:
+            gap_now = ema_data["ema_9"].iloc[-1] - ema_data["ema_21"].iloc[-1]
+            gap_prev = ema_data["ema_9"].iloc[-6] - ema_data["ema_21"].iloc[-6] if len(ema_data) > 6 else gap_now
+            vals["EMA Crossover (9/21)"] = (gap_now, gap_prev)
 
     # SMA gap
-    sma_data = sma_crossover(close)
-    if not sma_data.empty:
-        gap_now = sma_data["sma_20"].iloc[-1] - sma_data["sma_50"].iloc[-1]
-        gap_prev = sma_data["sma_20"].iloc[-6] - sma_data["sma_50"].iloc[-6] if len(sma_data) > 6 else gap_now
+    if has_precomputed and "_ind_sma_gap" in df.columns:
+        gap_now = df["_ind_sma_gap"].iloc[-1]
+        gap_prev = df["_ind_sma_gap_prev"].iloc[-1] if "_ind_sma_gap_prev" in df.columns else gap_now
         vals["SMA Crossover (20/50)"] = (gap_now, gap_prev)
+    else:
+        sma_data = sma_crossover(close)
+        if not sma_data.empty:
+            gap_now = sma_data["sma_20"].iloc[-1] - sma_data["sma_50"].iloc[-1]
+            gap_prev = sma_data["sma_20"].iloc[-6] - sma_data["sma_50"].iloc[-6] if len(sma_data) > 6 else gap_now
+            vals["SMA Crossover (20/50)"] = (gap_now, gap_prev)
 
     # Whale volume ratio
-    whale = whale_volume_detection(df)
-    if not whale.empty and "volume_ratio" in whale.columns:
-        r_now = whale["volume_ratio"].iloc[-1]
-        r_prev = whale["volume_ratio"].iloc[-6] if len(whale) > 6 else r_now
+    if has_precomputed and "_ind_whale_ratio" in df.columns:
+        r_now = df["_ind_whale_ratio"].iloc[-1]
+        r_prev = df["_ind_whale_ratio_prev"].iloc[-1] if "_ind_whale_ratio_prev" in df.columns else r_now
         if not np.isnan(r_now):
-            vals["Whale Volume"] = (r_now, r_prev if not np.isnan(r_prev) else r_now)
+            vals["Whale Volume"] = (r_now, r_prev)
+    else:
+        whale = whale_volume_detection(df)
+        if not whale.empty and "volume_ratio" in whale.columns:
+            r_now = whale["volume_ratio"].iloc[-1]
+            r_prev = whale["volume_ratio"].iloc[-6] if len(whale) > 6 else r_now
+            if not np.isnan(r_now):
+                vals["Whale Volume"] = (r_now, r_prev if not np.isnan(r_prev) else r_now)
 
     # VOBHS components
     if len(df) > 100:
-        vobhs = vobhs_composite(df)
-        vo = vobhs["volatility_oscillator"]["spike"]
-        vals["Volatility Oscillator"] = (vo.iloc[-1], vo.iloc[-6] if len(vo) > 6 else vo.iloc[0])
+        if has_precomputed and "_ind_vo_spike" in df.columns:
+            vo_now = df["_ind_vo_spike"].iloc[-1]
+            vo_prev = df["_ind_vo_spike_prev"].iloc[-1] if "_ind_vo_spike_prev" in df.columns else vo_now
+            vals["Volatility Oscillator"] = (vo_now, vo_prev)
+            
+            # Boom Hunter
+            trig_now = df["_ind_boom_trigger"].iloc[-1] - df["_ind_boom_quotient"].iloc[-1]
+            if len(df) > 6:
+                trig_prev = df["_ind_boom_trigger"].iloc[-6] - df["_ind_boom_quotient"].iloc[-6]
+            else:
+                trig_prev = trig_now
+            vals["Boom Hunter Pro (BHS)"] = (trig_now, trig_prev)
+            
+            # HMA
+            hma_now = df["Close"].iloc[-1] - df["_ind_hma"].iloc[-1]
+            hma_prev = df["Close"].iloc[-6] - df["_ind_hma"].iloc[-6] if len(df) > 6 else hma_now
+            vals["Hull Moving Average"] = (hma_now, hma_prev)
+            
+            # ATR
+            atr_now = df["_ind_atr"].iloc[-1]
+            atr_prev = df["_ind_atr"].iloc[-6] if len(df) > 6 else atr_now
+            vals["Modified ATR"] = (atr_now, atr_prev)
+        else:
+            vobhs = vobhs_composite(df)
+            vo = vobhs["volatility_oscillator"]["spike"]
+            vals["Volatility Oscillator"] = (vo.iloc[-1], vo.iloc[-6] if len(vo) > 6 else vo.iloc[0])
 
-        boom = vobhs["boom_hunter"]
-        trig_now = boom["trigger"].iloc[-1] - boom["quotient"].iloc[-1]
-        trig_prev = (boom["trigger"].iloc[-6] - boom["quotient"].iloc[-6]) if len(boom) > 6 else trig_now
-        vals["Boom Hunter Pro (BHS)"] = (trig_now, trig_prev)
+            boom = vobhs["boom_hunter"]
+            trig_now = boom["trigger"].iloc[-1] - boom["quotient"].iloc[-1]
+            trig_prev = (boom["trigger"].iloc[-6] - boom["quotient"].iloc[-6]) if len(boom) > 6 else trig_now
+            vals["Boom Hunter Pro (BHS)"] = (trig_now, trig_prev)
 
-        hma_now = df["Close"].iloc[-1] - vobhs["hull_ma"].iloc[-1]
-        hma_prev = (df["Close"].iloc[-6] - vobhs["hull_ma"].iloc[-6]) if len(vobhs["hull_ma"]) > 6 else hma_now
-        vals["Hull Moving Average"] = (hma_now, hma_prev)
+            hma_now = df["Close"].iloc[-1] - vobhs["hull_ma"].iloc[-1]
+            hma_prev = (df["Close"].iloc[-6] - vobhs["hull_ma"].iloc[-6]) if len(vobhs["hull_ma"]) > 6 else hma_now
+            vals["Hull Moving Average"] = (hma_now, hma_prev)
 
-        atr = vobhs["modified_atr"]["atr"]
-        vals["Modified ATR"] = (atr.iloc[-1], atr.iloc[-6] if len(atr) > 6 else atr.iloc[0])
+            atr = vobhs["modified_atr"]["atr"]
+            vals["Modified ATR"] = (atr.iloc[-1], atr.iloc[-6] if len(atr) > 6 else atr.iloc[0])
 
     # Bollinger
     bsq = bollinger_squeeze(df)
@@ -550,3 +605,115 @@ def allocation_recommendation(gold_score: dict, silver_score: dict, gs_ratio: fl
         "silver_pct": silver_pct,
         "reasoning": reasoning,
     }
+
+
+# ---------------------------------------------------------------------------
+# Pre-compute indicators for batch processing
+# ---------------------------------------------------------------------------
+
+def precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Pre-compute all rolling indicators once and attach as columns.
+    This avoids recomputing for each timestamp during batch signal computation.
+    
+    Returns DataFrame with additional indicator columns prefixed with '_ind_'.
+    """
+    if df.empty or len(df) < 10:
+        return df
+    
+    result = df.copy()
+    
+    # RSI
+    rsi_series = rsi(df["Close"])
+    if not rsi_series.empty:
+        result["_ind_rsi"] = rsi_series
+        result["_ind_rsi_prev"] = rsi_series.shift(5)
+    
+    # EMA crossover
+    ema_data = ema_crossover(df["Close"])
+    if not ema_data.empty:
+        result["_ind_ema9"] = ema_data["ema_9"]
+        result["_ind_ema21"] = ema_data["ema_21"]
+        result["_ind_ema_gap"] = ema_data["ema_9"] - ema_data["ema_21"]
+        result["_ind_ema_gap_prev"] = result["_ind_ema_gap"].shift(5)
+    
+    # SMA crossover
+    sma_data = sma_crossover(df["Close"])
+    if not sma_data.empty:
+        result["_ind_sma20"] = sma_data["sma_20"]
+        result["_ind_sma50"] = sma_data["sma_50"]
+        result["_ind_sma_gap"] = sma_data["sma_20"] - sma_data["sma_50"]
+        result["_ind_sma_gap_prev"] = result["_ind_sma_gap"].shift(5)
+    
+    # Momentum ROC
+    mom = momentum_bars(df)
+    if not mom.empty and "roc" in mom.columns:
+        result["_ind_roc"] = mom["roc"]
+        result["_ind_roc_prev"] = mom["roc"].shift(5)
+    
+    # Whale volume
+    whale = whale_volume_detection(df)
+    if not whale.empty and "volume_ratio" in whale.columns:
+        result["_ind_whale_ratio"] = whale["volume_ratio"]
+        result["_ind_whale_ratio_prev"] = whale["volume_ratio"].shift(5)
+    
+    # VOBHS components (only if sufficient data)
+    if len(df) > 100:
+        vobhs = vobhs_composite(df)
+        
+        # Volatility oscillator spike
+        vo_spike = vobhs["volatility_oscillator"]["spike"]
+        result["_ind_vo_spike"] = vo_spike
+        result["_ind_vo_spike_prev"] = vo_spike.shift(5)
+        
+        # Boom Hunter
+        boom = vobhs["boom_hunter"]
+        result["_ind_boom_trigger"] = boom["trigger"]
+        result["_ind_boom_quotient"] = boom["quotient"]
+        result["_ind_boom_signal"] = boom["signal"]
+        
+        # HMA
+        hma = vobhs["hull_ma"]
+        result["_ind_hma"] = hma
+        result["_ind_hma_prev5"] = hma.shift(5)
+        
+        # ATR
+        atr = vobhs["modified_atr"]["atr"]
+        result["_ind_atr"] = atr
+        result["_ind_atr_avg20"] = atr.rolling(20).mean()
+    
+    # Bollinger squeeze
+    bb = bollinger_squeeze(df)
+    if not bb.empty:
+        result["_ind_bb_width"] = bb.get("width", pd.Series(index=df.index))
+        result["_ind_bb_squeeze"] = bb.get("squeeze", pd.Series(index=df.index))
+    
+    # Triangle detection
+    tri = detect_triangles(df)
+    if tri.get("pattern") and tri.get("pattern") != "insufficient_data":
+        result["_ind_triangle_pattern"] = tri.get("pattern", "")
+        result["_ind_triangle_slope_high"] = tri.get("slope_high", np.nan)
+        result["_ind_triangle_slope_low"] = tri.get("slope_low", np.nan)
+    
+    return result
+
+
+# Cache for precomputed dataframes
+_PRECOMPUTED_CACHE: dict[int, pd.DataFrame] = {}
+
+
+def get_precomputed(df: pd.DataFrame) -> pd.DataFrame:
+    """Get precomputed indicators for a dataframe, using cache."""
+    # Use dataframe id as cache key
+    df_id = id(df)
+    if df_id in _PRECOMPUTED_CACHE:
+        return _PRECOMPUTED_CACHE[df_id]
+    
+    result = precompute_indicators(df)
+    _PRECOMPUTED_CACHE[df_id] = result
+    return result
+
+
+def clear_precomputed_cache():
+    """Clear the precomputed indicators cache."""
+    _PRECOMPUTED_CACHE.clear()
