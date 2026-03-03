@@ -43,17 +43,20 @@ def _download_history(ticker: str, start_key: str, interval: str, end_key: str |
 
 
 def fetch_history_cached(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
-    """Fetch history with caching. Used by both dashboard and simulator."""
+    """Fetch history with caching. Used by both dashboard and simulator. Non-blocking read."""
     start_key = start.date().isoformat()
     key = (ticker, start_key, interval)
     
+    # Fast path: check cache without blocking
     with _HISTORY_CACHE_LOCK:
         cached = _HISTORY_CACHE.get(key)
         if cached is not None and not cached.empty:
             return cached.copy()
     
+    # Download outside lock (this is the slow part)
     df = _download_history(ticker, start_key, interval)
     
+    # Store result
     with _HISTORY_CACHE_LOCK:
         _HISTORY_CACHE[key] = df.copy()
     

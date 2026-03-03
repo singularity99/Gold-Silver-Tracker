@@ -130,8 +130,11 @@ def _top_up_to_present(ticker: str, interval: str, df: pd.DataFrame) -> pd.DataF
 
 
 def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
+    """Fetch history with caching. Downloads happen outside the lock."""
     start_key = start.date().isoformat()
     key = (ticker, start_key, interval)
+    
+    # Fast cache check
     with _HISTORY_CACHE_LOCK:
         cached = _HISTORY_CACHE.get(key)
         if cached is not None and _is_sufficient(cached, start, interval):
@@ -142,51 +145,54 @@ def _fetch_history(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
                 _HISTORY_CACHE[key] = topped.copy()
                 return topped.copy()
 
+        # Find related caches without blocking
         related = [
             (k, v) for k, v in _HISTORY_CACHE.items()
             if k[0] == ticker and k[2] == interval and v is not None and not v.empty
         ]
 
-        # Reuse an existing cache that already starts earlier than requested.
-        covering = [
-            (k, v) for k, v in related
-            if pd.Timestamp(k[1]) <= pd.Timestamp(start_key)
-        ]
-        if covering:
-            best_key, best_df = max(covering, key=lambda kv: kv[0][1])
-            boundary = _boundary_for_index(best_df, start_key)
-            sliced = best_df[best_df.index >= boundary]
-            if not sliced.empty:
-                sliced = _top_up_to_present(ticker, interval, sliced)
-            if _is_sufficient(sliced, start, interval):
+    # Downloads happen outside lock
+    covering = [
+        (k, v) for k, v in related
+        if pd.Timestamp(k[1]) <= pd.Timestamp(start_key)
+    ]
+    if covering:
+        best_key, best_df = max(covering, key=lambda kv: kv[0][1])
+        boundary = _boundary_for_index(best_df, start_key)
+        sliced = best_df[best_df.index >= boundary]
+        if not sliced.empty:
+            sliced = _top_up_to_present(ticker, interval, sliced)
+        if _is_sufficient(sliced, start, interval):
+            with _HISTORY_CACHE_LOCK:
                 _HISTORY_CACHE[key] = sliced.copy()
-                return sliced.copy()
+            return sliced.copy()
 
-        # If requested start is earlier than cached windows, fetch only the missing older segment.
-        later = [
-            (k, v) for k, v in related
-            if pd.Timestamp(k[1]) > pd.Timestamp(start_key)
-        ]
-        if later:
-            nearest_key, nearest_df = min(later, key=lambda kv: kv[0][1])
-            nearest_start = pd.Timestamp(nearest_key[1])
-            end_key = (nearest_start + pd.Timedelta(days=1)).date().isoformat()
-            older = _download_history(ticker, start_key, interval, end_key=end_key)
-            merged = pd.concat([older, nearest_df]).sort_index()
-            merged = merged[~merged.index.duplicated(keep="last")]
-            boundary = _boundary_for_index(merged, start_key)
-            merged = merged[merged.index >= boundary]
-            if not merged.empty:
-                merged = _top_up_to_present(ticker, interval, merged)
-            if _is_sufficient(merged, start, interval):
+    later = [
+        (k, v) for k, v in related
+        if pd.Timestamp(k[1]) > pd.Timestamp(start_key)
+    ]
+    if later:
+        nearest_key, nearest_df = min(later, key=lambda kv: kv[0][1])
+        nearest_start = pd.Timestamp(nearest_key[1])
+        end_key = (nearest_start + pd.Timedelta(days=1)).date().isoformat()
+        older = _download_history(ticker, start_key, interval, end_key=end_key)
+        merged = pd.concat([older, nearest_df]).sort_index()
+        merged = merged[~merged.index.duplicated(keep="last")]
+        boundary = _boundary_for_index(merged, start_key)
+        merged = merged[merged.index >= boundary]
+        if not merged.empty:
+            merged = _top_up_to_present(ticker, interval, merged)
+        if _is_sufficient(merged, start, interval):
+            with _HISTORY_CACHE_LOCK:
                 _HISTORY_CACHE[key] = merged.copy()
-                return merged.copy()
+            return merged.copy()
 
+    df = _download_history(ticker, start_key, interval)
+    if not _is_sufficient(df, start, interval):
         df = _download_history(ticker, start_key, interval)
-        if not _is_sufficient(df, start, interval):
-            df = _download_history(ticker, start_key, interval)
+    with _HISTORY_CACHE_LOCK:
         _HISTORY_CACHE[key] = df.copy()
-        return df.copy()
+    return df.copy()
 
 
 def _to_london(df: pd.DataFrame) -> pd.DataFrame:
