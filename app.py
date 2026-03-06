@@ -336,6 +336,14 @@ if "total_pot_cfg" not in st.session_state or st.session_state.get("_last_total_
     st.session_state["_last_total_pot_synced"] = shared_total_pot
 st.sidebar.number_input("Total investment pot (GBP)", step=10_000.0, key="total_pot_cfg", on_change=_save_total_pot)
 
+# Show GitHub persistence status
+gh_status = _github_config()
+if gh_status:
+    st.sidebar.caption(f"Sync: {gh_status['repo']}")
+else:
+    st.sidebar.caption("Sync: Local only (settings reset on restart)")
+    st.sidebar.caption("Add GITHUB_TOKEN + GITHUB_REPO secrets")
+
 
 # Cache macro state for 5 minutes (shorter TTL for responsiveness to crossovers)
 @st.cache_data(show_spinner=False, ttl=300)
