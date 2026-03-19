@@ -293,11 +293,12 @@ def _compute_signal(metal: str, daily_df: pd.DataFrame, hourly_df: pd.DataFrame,
     long_df = daily_df[daily_df.index.date <= as_of_ts.date()]
     medium_df = long_df.tail(90)
     short_df = hourly_df[(hourly_df.index <= as_of_ts) & (hourly_df.index >= as_of_ts - timedelta(days=30))]
-    fib = multi_timeframe_fibonacci({
+    tf_data = {
         "long_term": long_df,
         "medium_term": medium_df,
         "short_term": short_df,
-    })
+    }
+    fib = multi_timeframe_fibonacci(tf_data)
     prev_bar = _latest_before(hourly_df, as_of_ts)
     if prev_bar is None or long_df.empty:
         result = (SIGNAL_NEUTRAL, {})
@@ -305,7 +306,7 @@ def _compute_signal(metal: str, daily_df: pd.DataFrame, hourly_df: pd.DataFrame,
             _SIGNAL_CACHE[cache_key] = result
         return result
     price_now = float(prev_bar["Close"])
-    score = score_metal(long_df, fib, price_now, tf_weights=tf_weights)
+    score = score_metal(long_df, fib, price_now, tf_weights=tf_weights, tf_data=tf_data)
     result = (score.get("signal", SIGNAL_NEUTRAL), score)
     with _SIGNAL_CACHE_LOCK:
         if len(_SIGNAL_CACHE) > 30000:

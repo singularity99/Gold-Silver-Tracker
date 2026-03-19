@@ -19,21 +19,27 @@ STRENGTH_WEAK = "Weak"
 
 # Indicator definitions: (name, timeframe, base_weight, correlation_group)
 # Base weights sum to 100. Actual weights rescaled by configurable timeframe percentages.
+# Whale Volume appears in all 3 timeframes with different weights reflecting signal quality:
+#   - Short (hourly): noise-prone single orders, lower weight
+#   - Medium (daily): most actionable institutional signals, highest weight
+#   - Long (weekly): structural accumulation patterns, moderate weight
 INDICATORS = [
     ("Fib Long-term (2yr)",    "Long",   5,  "Price Levels"),
-    ("Fib Medium-term (3mo)",  "Medium", 9.25,  "Price Levels"),
-    ("Fib Short-term (2-3wk)", "Short",  7,  "Price Levels"),
-    ("Volatility Oscillator",  "Short",  8,  "Volatility"),
-    ("Boom Hunter Pro (BHS)",  "Short",  11, "Trend (COG)"),
-    ("EMA Crossover (9/21)",   "Short",  7,  "Trend (MA)"),
-    ("Hull Moving Average",    "Medium", 11.10,  "Trend (MA)"),
+    ("Fib Medium-term (3mo)",  "Medium", 8,  "Price Levels"),
+    ("Fib Short-term (2-3wk)", "Short",  6,  "Price Levels"),
+    ("Volatility Oscillator",  "Short",  7,  "Volatility"),
+    ("Boom Hunter Pro (BHS)",  "Short",  10, "Trend (COG)"),
+    ("EMA Crossover (9/21)",   "Short",  6,  "Trend (MA)"),
+    ("Hull Moving Average",    "Medium", 10,  "Trend (MA)"),
     ("Modified ATR",           "Long",   4,  "Volatility"),
-    ("Triangle Pattern",       "Medium", 5.55,  "Pattern"),
-    ("Bollinger Squeeze",      "Medium", 3.70,  "Volatility"),
-    ("Momentum Bars (ROC)",    "Short",  8,  "Momentum"),
-    ("Whale Volume",           "Short",  7,  "Volume"),
-    ("RSI (14)",               "Medium", 7.40,  "Momentum"),
-    ("SMA Crossover (20/50)",  "Long",   6,  "Trend (MA)"),
+    ("Triangle Pattern",       "Medium", 5,  "Pattern"),
+    ("Bollinger Squeeze",      "Medium", 3,  "Volatility"),
+    ("Momentum Bars (ROC)",    "Short",  7,  "Momentum"),
+    ("Whale Volume (Short)",   "Short",  4,  "Volume"),
+    ("Whale Volume (Medium)",  "Medium", 8,  "Volume"),
+    ("Whale Volume (Long)",    "Long",   5,  "Volume"),
+    ("RSI (14)",               "Medium", 7,  "Momentum"),
+    ("SMA Crossover (20/50)",  "Long",   5,  "Trend (MA)"),
 ]
 
 # Correlated pairs -- used for conflict detection
@@ -157,19 +163,19 @@ def _compute_raw_values(df: pd.DataFrame) -> dict:
             gap_prev = sma_data["sma_20"].iloc[-6] - sma_data["sma_50"].iloc[-6] if len(sma_data) > 6 else gap_now
             vals["SMA Crossover (20/50)"] = (gap_now, gap_prev)
 
-    # Whale volume ratio
+    # Whale volume ratio (Medium timeframe - uses main df which is daily)
     if has_precomputed and "_ind_whale_ratio" in df.columns:
         r_now = df["_ind_whale_ratio"].iloc[-1]
         r_prev = df["_ind_whale_ratio_prev"].iloc[-1] if "_ind_whale_ratio_prev" in df.columns else r_now
         if not np.isnan(r_now):
-            vals["Whale Volume"] = (r_now, r_prev)
+            vals["Whale Volume (Medium)"] = (r_now, r_prev)
     else:
         whale = whale_volume_detection(df)
         if not whale.empty and "volume_ratio" in whale.columns:
             r_now = whale["volume_ratio"].iloc[-1]
             r_prev = whale["volume_ratio"].iloc[-6] if len(whale) > 6 else r_now
             if not np.isnan(r_now):
-                vals["Whale Volume"] = (r_now, r_prev if not np.isnan(r_prev) else r_now)
+                vals["Whale Volume (Medium)"] = (r_now, r_prev if not np.isnan(r_prev) else r_now)
 
     # VOBHS components
     if len(df) > 100:
@@ -257,11 +263,12 @@ def _rescale_indicators(tf_weights: dict) -> list:
 
 
 def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
-                tf_weights: dict = None) -> dict:
+                tf_weights: dict = None, tf_data: dict = None) -> dict:
     """
     Compute weighted composite signal score for a single metal.
-    All 14 indicators always vote. Weighted by importance and trading horizon.
+    All 16 indicators always vote. Weighted by importance and trading horizon.
     tf_weights: optional dict {"Short": %, "Medium": %, "Long": %} summing to 100.
+    tf_data: optional dict {"long_term": df, "medium_term": df, "short_term": df} for multi-TF indicators.
     """
     if tf_weights is None:
         tf_weights = DEFAULT_TF_WEIGHTS
@@ -417,21 +424,42 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     else:
         votes["Momentum Bars (ROC)"] = (0, "Insufficient data")
 
-    # --- Whale Volume -- always votes ---
-    whale = whale_volume_detection(df)
-    if not whale.empty and "whale_flag" in whale.columns:
+    # --- Whale Volume (Multi-Timeframe) ---
+    def _whale_vote(vol_df: pd.DataFrame, label: str) -> tuple[int, str]:
+        """Compute whale volume vote for a given timeframe dataframe."""
+        if vol_df is None or vol_df.empty:
+            return (0, f"No {label} volume data")
+        whale = whale_volume_detection(vol_df)
+        if whale.empty or "whale_flag" not in whale.columns:
+            return (0, f"No {label} volume data")
         ratio_val = whale["volume_ratio"].iloc[-1]
-        if not np.isnan(ratio_val):
-            if whale["whale_flag"].iloc[-1]:
-                votes["Whale Volume"] = (1, f"HIGH VOLUME ({ratio_val:.1f}x avg) -- institutional accumulation")
-            elif ratio_val < 0.5:
-                votes["Whale Volume"] = (-1, f"Low volume ({ratio_val:.1f}x avg) -- weak conviction")
-            else:
-                votes["Whale Volume"] = (0, f"Normal volume ({ratio_val:.1f}x avg)")
+        if np.isnan(ratio_val):
+            return (0, f"No {label} volume data")
+        if whale["whale_flag"].iloc[-1]:
+            return (1, f"HIGH {label.upper()} VOLUME ({ratio_val:.1f}x avg) -- institutional activity")
+        elif ratio_val < 0.5:
+            return (-1, f"Low {label} volume ({ratio_val:.1f}x avg) -- weak conviction")
         else:
-            votes["Whale Volume"] = (0, "No volume data available")
+            return (0, f"Normal {label} volume ({ratio_val:.1f}x avg)")
+
+    # Short-term whale (hourly data - noise-prone)
+    short_df = tf_data.get("short_term") if tf_data else None
+    votes["Whale Volume (Short)"] = _whale_vote(short_df, "hourly")
+
+    # Medium-term whale (daily data - most actionable)
+    medium_df = tf_data.get("medium_term") if tf_data else df  # fallback to main df
+    votes["Whale Volume (Medium)"] = _whale_vote(medium_df, "daily")
+
+    # Long-term whale (aggregate daily to weekly for structural patterns)
+    long_df = tf_data.get("long_term") if tf_data else df
+    if long_df is not None and not long_df.empty and "Volume" in long_df.columns:
+        # Resample daily to weekly for long-term volume patterns
+        weekly_df = long_df.resample("W").agg({
+            "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"
+        }).dropna()
+        votes["Whale Volume (Long)"] = _whale_vote(weekly_df, "weekly")
     else:
-        votes["Whale Volume"] = (0, "No volume data available")
+        votes["Whale Volume (Long)"] = (0, "No weekly volume data")
 
     # --- RSI (medium momentum regime with hysteresis) ---
     rsi_val = rsi(df["Close"]).iloc[-1]

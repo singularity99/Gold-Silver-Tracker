@@ -418,8 +418,8 @@ with tab_dashboard:
         gold_daily = gold_tf["long_term"]
         silver_daily = silver_tf["long_term"]
 
-        gold_score = score_metal(gold_daily, gold_fib, spot["gold"]["price_usd"], tf_weight_config) if not gold_daily.empty else None
-        silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"], tf_weight_config) if not silver_daily.empty else None
+        gold_score = score_metal(gold_daily, gold_fib, spot["gold"]["price_usd"], tf_weight_config, tf_data=gold_tf) if not gold_daily.empty else None
+        silver_score = score_metal(silver_daily, silver_fib, spot["silver"]["price_usd"], tf_weight_config, tf_data=silver_tf) if not silver_daily.empty else None
 
         if st.session_state.get("macro_overlay_enabled", True):
             if gold_score:
