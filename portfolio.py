@@ -18,6 +18,7 @@ DEFAULT_CONFIG = {
     "sma_fast": 20,
     "sma_slow": 50,
     "whale_vol_threshold": 2.0,
+    "macro_overlay_enabled": True,
     "tf_weights": deepcopy(DEFAULT_TF_WEIGHTS),
     "profiles": {},
 }
@@ -70,6 +71,9 @@ def _normalise_config(config: dict | None) -> dict:
                 except (TypeError, ValueError):
                     pass
 
+        if "macro_overlay_enabled" in config:
+            merged["macro_overlay_enabled"] = bool(config.get("macro_overlay_enabled"))
+
         merged["tf_weights"] = _normalise_tf_weights(config.get("tf_weights"))
         profiles = config.get("profiles")
         if isinstance(profiles, dict):
@@ -102,6 +106,8 @@ def _merge_config(base: dict, updates: dict) -> dict:
                 merged[key] = int(updates[key])
             except (TypeError, ValueError):
                 pass
+    if "macro_overlay_enabled" in updates:
+        merged["macro_overlay_enabled"] = bool(updates.get("macro_overlay_enabled"))
     if "tf_weights" in updates:
         merged["tf_weights"] = _normalise_tf_weights(updates.get("tf_weights"))
     if "profiles" in updates and isinstance(updates["profiles"], dict):

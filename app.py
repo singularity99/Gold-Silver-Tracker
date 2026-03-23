@@ -72,8 +72,10 @@ def _normalise_weights(weights: dict | None) -> dict:
 
 
 def _normalise_selected_etcs(selected: list[str] | None) -> list[str]:
+    if selected is None:
+        return available_etcs[:2]
     valid = [tk for tk in (selected or []) if tk in available_etcs]
-    return valid if valid else available_etcs[:2]
+    return valid
 
 
 def _normalise_config(config: dict | None) -> dict:
