@@ -268,53 +268,119 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     Compute weighted composite signal score for a single metal.
     All 16 indicators always vote. Weighted by importance and trading horizon.
     tf_weights: optional dict {"Short": %, "Medium": %, "Long": %} summing to 100.
-    tf_data: optional dict {"long_term": df, "medium_term": df, "short_term": df} for multi-TF indicators.
+    tf_data: optional dict {
+      "intraday_term": df (5m), "short_term": df (1h),
+      "medium_term": df (1d), "long_term": df (1mo)
+    }
     """
     if tf_weights is None:
         tf_weights = DEFAULT_TF_WEIGHTS
+    tf_data = tf_data or {}
     indicators = _rescale_indicators(tf_weights)
 
+    def _pick_df(tf_key: str, fallback: pd.DataFrame) -> pd.DataFrame:
+        tf_df = tf_data.get(tf_key)
+        if isinstance(tf_df, pd.DataFrame) and not tf_df.empty:
+            return tf_df
+        return fallback
+
+    intraday_df = _pick_df("intraday_term", df)
+    short_df = _pick_df("short_term", df)
+    medium_df = _pick_df("medium_term", df)
+    long_df = _pick_df("long_term", df)
+
     votes = {}  # indicator_name -> (vote, detail_text)
-    raw_values = _compute_raw_values(df)
+    raw_values = {}
+    for tf_df in (short_df, medium_df, long_df):
+        if isinstance(tf_df, pd.DataFrame) and not tf_df.empty:
+            raw_values.update(_compute_raw_values(tf_df))
 
-    # --- Fibonacci (3 timeframes) ---
-    tf_map = {"long_term": "Fib Long-term (2yr)",
-              "medium_term": "Fib Medium-term (3mo)",
-              "short_term": "Fib Short-term (2-3wk)"}
-    prev_close = float(df["Close"].iloc[-2]) if len(df) > 1 else None
-    for tf_key, ind_name in tf_map.items():
-        fib_levels = fib_data.get(tf_key, {})
-        if tf_key == "medium_term":
-            vote, detail = _medium_fib_vote(current_price, prev_close, fib_levels)
-        else:
-            vote, detail = _fib_vote(current_price, fib_levels)
-        votes[ind_name] = (vote, detail)
+    def _vo_bhs_votes(source_df: pd.DataFrame) -> tuple[tuple[int, str], tuple[int, str]]:
+        if source_df is None or source_df.empty or len(source_df) <= 100:
+            return (0, "Insufficient data (<100 bars)"), (0, "Insufficient data (<100 bars)")
+        vobhs = vobhs_composite(source_df)
 
-    # --- VOBHS components ---
-    if len(df) > 100:
-        vobhs = vobhs_composite(df)
-
-        # Volatility Oscillator
         vo_last = int(vobhs["volatility_oscillator"]["signal"].iloc[-1])
-        votes["Volatility Oscillator"] = (vo_last,
-            {1: "Bullish spike above upper band", -1: "Bearish spike below lower band", 0: "Within bands (neutral)"}.get(vo_last, "Neutral"))
+        vo_vote = (
+            vo_last,
+            {1: "Bullish spike above upper band", -1: "Bearish spike below lower band", 0: "Within bands (neutral)"}.get(vo_last, "Neutral"),
+        )
 
-        # Boom Hunter Pro
         boom = vobhs["boom_hunter"]
         boom_cross = int(boom["signal"].iloc[-1])
         if boom_cross != 0:
-            votes["Boom Hunter Pro (BHS)"] = (boom_cross,
-                "Buy crossover (trigger crossed above quotient)" if boom_cross == 1 else "Sell crossover (trigger crossed below quotient)")
+            bhs_vote = (
+                boom_cross,
+                "Buy crossover (trigger crossed above quotient)" if boom_cross == 1 else "Sell crossover (trigger crossed below quotient)",
+            )
         else:
             boom_trend = 1 if boom["trigger"].iloc[-1] > boom["quotient"].iloc[-1] else -1
-            votes["Boom Hunter Pro (BHS)"] = (boom_trend,
-                "Trigger above quotient (bullish trend)" if boom_trend == 1 else "Trigger below quotient (bearish trend)")
+            bhs_vote = (
+                boom_trend,
+                "Trigger above quotient (bullish trend)" if boom_trend == 1 else "Trigger below quotient (bearish trend)",
+            )
+        return vo_vote, bhs_vote
 
-        # Hull Moving Average (medium-term trend filter with slope + distance buffer)
-        hma_series = vobhs["hull_ma"]
+    def _whale_vote(vol_df: pd.DataFrame, label: str) -> tuple[int, str]:
+        if vol_df is None or vol_df.empty:
+            return (0, f"No {label} volume data")
+        whale = whale_volume_detection(vol_df)
+        if whale.empty or "whale_flag" not in whale.columns:
+            return (0, f"No {label} volume data")
+        ratio_val = whale["volume_ratio"].iloc[-1]
+        if np.isnan(ratio_val):
+            return (0, f"No {label} volume data")
+        if whale["whale_flag"].iloc[-1]:
+            return (1, f"HIGH {label.upper()} VOLUME ({ratio_val:.1f}x avg) -- institutional activity")
+        if ratio_val < 0.5:
+            return (-1, f"Low {label} volume ({ratio_val:.1f}x avg) -- weak conviction")
+        return (0, f"Normal {label} volume ({ratio_val:.1f}x avg)")
+
+    # --- Fibonacci votes ---
+    prev_close = float(medium_df["Close"].iloc[-2]) if len(medium_df) > 1 else None
+    votes["Fib Long-term (2yr)"] = _fib_vote(current_price, fib_data.get("long_term", {}))
+    votes["Fib Medium-term (3mo)"] = _medium_fib_vote(current_price, prev_close, fib_data.get("medium_term", {}))
+    votes["Fib Short-term (2-3wk)"] = _fib_vote(current_price, fib_data.get("short_term", {}))
+
+    # --- Short timeframe indicators (1h) ---
+    votes["Volatility Oscillator"], votes["Boom Hunter Pro (BHS)"] = _vo_bhs_votes(short_df)
+
+    mom = momentum_bars(short_df)
+    if not mom.empty:
+        mom_dir = int(mom["direction"].iloc[-1])
+        roc_val = mom["roc"].iloc[-1]
+        label = {2: "Strong bullish", 1: "Mild bullish", -1: "Mild bearish", -2: "Strong bearish", 0: "Flat"}.get(mom_dir, "Flat")
+        if mom_dir >= 1:
+            votes["Momentum Bars (ROC)"] = (1, f"{label} (ROC: {roc_val:+.1f}%)")
+        elif mom_dir <= -1:
+            votes["Momentum Bars (ROC)"] = (-1, f"{label} (ROC: {roc_val:+.1f}%)")
+        else:
+            votes["Momentum Bars (ROC)"] = (0, f"{label} (ROC: {roc_val:+.1f}%)")
+    else:
+        votes["Momentum Bars (ROC)"] = (0, "Insufficient data")
+
+    ema_data = ema_crossover(short_df["Close"]) if short_df is not None and not short_df.empty else pd.DataFrame()
+    if not ema_data.empty:
+        if ema_data["cross_up"].iloc[-1]:
+            votes["EMA Crossover (9/21)"] = (1, "9 EMA just crossed above 21 EMA (fresh bullish crossover)")
+        elif ema_data["cross_down"].iloc[-1]:
+            votes["EMA Crossover (9/21)"] = (-1, "9 EMA just crossed below 21 EMA (fresh bearish crossover)")
+        elif ema_data["fast_above_slow"].iloc[-1]:
+            votes["EMA Crossover (9/21)"] = (1, "9 EMA above 21 EMA (short-term uptrend)")
+        else:
+            votes["EMA Crossover (9/21)"] = (-1, "9 EMA below 21 EMA (short-term downtrend)")
+    else:
+        votes["EMA Crossover (9/21)"] = (0, "Insufficient data")
+
+    votes["Whale Volume (Short)"] = _whale_vote(short_df, "hourly")
+
+    # --- Medium timeframe indicators (1d) ---
+    if len(medium_df) > 100:
+        vobhs_medium = vobhs_composite(medium_df)
+        hma_series = vobhs_medium["hull_ma"]
         hma_now = float(hma_series.iloc[-1]) if len(hma_series) else np.nan
         hma_prev5 = float(hma_series.iloc[-6]) if len(hma_series) > 5 else np.nan
-        close_now = float(df["Close"].iloc[-1])
+        close_now = float(medium_df["Close"].iloc[-1])
         if np.isnan(hma_now) or hma_now == 0 or np.isnan(hma_prev5) or hma_prev5 == 0:
             hma_vote = 0
             hma_detail = "Insufficient HMA data"
@@ -334,39 +400,15 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
                 hma_vote = 0
                 hma_detail = f"Price/slope mismatch vs HMA (gap {gap_pct:+.2f}%, slope {slope_pct:+.2f}%)"
         votes["Hull Moving Average"] = (hma_vote, hma_detail)
-
-        # Modified ATR -- now votes based on ATR trend (narrowing = bullish conviction, widening = caution)
-        atr_series = vobhs["modified_atr"]["atr"]
-        atr_current = atr_series.iloc[-1]
-        atr_avg = atr_series.rolling(20).mean().iloc[-1]
-        if not np.isnan(atr_current) and not np.isnan(atr_avg):
-            if atr_current < atr_avg * 0.8:
-                atr_vote = 1
-                atr_detail = f"ATR narrowing (${atr_current:,.0f} < avg ${atr_avg:,.0f}) -- low volatility, trend conviction"
-            elif atr_current > atr_avg * 1.2:
-                atr_vote = -1
-                atr_detail = f"ATR widening (${atr_current:,.0f} > avg ${atr_avg:,.0f}) -- high volatility, caution"
-            else:
-                atr_vote = 0
-                atr_detail = f"ATR normal (${atr_current:,.0f} ~ avg ${atr_avg:,.0f})"
-        else:
-            atr_vote = 0
-            atr_detail = "Insufficient ATR data"
-        stop_long = vobhs["modified_atr"]["stop_long"].iloc[-1]
-        stop_short = vobhs["modified_atr"]["stop_short"].iloc[-1]
-        atr_detail += f" | Stops: long ${stop_long:,.0f} / short ${stop_short:,.0f}"
-        votes["Modified ATR"] = (atr_vote, atr_detail)
     else:
-        for name in ["Volatility Oscillator", "Boom Hunter Pro (BHS)", "Hull Moving Average", "Modified ATR"]:
-            votes[name] = (0, "Insufficient data (<100 bars)")
+        votes["Hull Moving Average"] = (0, "Insufficient data (<100 bars)")
 
-    # --- Triangle Pattern ---
-    tri = detect_triangles(df)
+    tri = detect_triangles(medium_df)
     if tri["pattern"] not in ("no_pattern", "insufficient_data"):
-        if len(df) > 1 and "resistance_line" in tri and "support_line" in tri:
-            breakout_buffer = 0.0025  # 0.25%
-            c_now = float(df["Close"].iloc[-1])
-            c_prev = float(df["Close"].iloc[-2])
+        if len(medium_df) > 1 and "resistance_line" in tri and "support_line" in tri:
+            breakout_buffer = 0.0025
+            c_now = float(medium_df["Close"].iloc[-1])
+            c_prev = float(medium_df["Close"].iloc[-2])
             r_now = float(tri["resistance_line"][-1])
             r_prev = float(tri["resistance_line"][-2])
             s_now = float(tri["support_line"][-1])
@@ -386,15 +428,14 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     else:
         votes["Triangle Pattern"] = (0, "No triangle pattern detected")
 
-    # --- Bollinger Squeeze -- now votes ---
-    bsq = bollinger_squeeze(df)
+    bsq = bollinger_squeeze(medium_df)
     if not bsq.empty:
         squeeze_on = bool(bsq["squeeze_on"].iloc[-1])
         squeeze_recent = bool((bsq["squeeze_on"].tail(4)).any())
         bb_width = float(bsq["bb_width"].iloc[-1])
         bb_mid = float(bsq["bb_mid"].iloc[-1]) if "bb_mid" in bsq.columns and not np.isnan(bsq["bb_mid"].iloc[-1]) else np.nan
-        close_now = float(df["Close"].iloc[-1])
-        rsi_val = float(rsi(df["Close"]).iloc[-1]) if len(df) > 0 else np.nan
+        close_now = float(medium_df["Close"].iloc[-1])
+        rsi_val = float(rsi(medium_df["Close"]).iloc[-1]) if len(medium_df) > 0 else np.nan
         if squeeze_on:
             votes["Bollinger Squeeze"] = (0, f"Squeeze ON (bandwidth {bb_width:.4f}) -- compression regime")
         elif squeeze_recent and not np.isnan(bb_mid) and not np.isnan(rsi_val):
@@ -409,60 +450,7 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     else:
         votes["Bollinger Squeeze"] = (0, "Insufficient data")
 
-    # --- Momentum Bars ---
-    mom = momentum_bars(df)
-    if not mom.empty:
-        mom_dir = int(mom["direction"].iloc[-1])
-        roc_val = mom["roc"].iloc[-1]
-        label = {2: "Strong bullish", 1: "Mild bullish", -1: "Mild bearish", -2: "Strong bearish", 0: "Flat"}.get(mom_dir, "Flat")
-        if mom_dir >= 1:
-            votes["Momentum Bars (ROC)"] = (1, f"{label} (ROC: {roc_val:+.1f}%)")
-        elif mom_dir <= -1:
-            votes["Momentum Bars (ROC)"] = (-1, f"{label} (ROC: {roc_val:+.1f}%)")
-        else:
-            votes["Momentum Bars (ROC)"] = (0, f"{label} (ROC: {roc_val:+.1f}%)")
-    else:
-        votes["Momentum Bars (ROC)"] = (0, "Insufficient data")
-
-    # --- Whale Volume (Multi-Timeframe) ---
-    def _whale_vote(vol_df: pd.DataFrame, label: str) -> tuple[int, str]:
-        """Compute whale volume vote for a given timeframe dataframe."""
-        if vol_df is None or vol_df.empty:
-            return (0, f"No {label} volume data")
-        whale = whale_volume_detection(vol_df)
-        if whale.empty or "whale_flag" not in whale.columns:
-            return (0, f"No {label} volume data")
-        ratio_val = whale["volume_ratio"].iloc[-1]
-        if np.isnan(ratio_val):
-            return (0, f"No {label} volume data")
-        if whale["whale_flag"].iloc[-1]:
-            return (1, f"HIGH {label.upper()} VOLUME ({ratio_val:.1f}x avg) -- institutional activity")
-        elif ratio_val < 0.5:
-            return (-1, f"Low {label} volume ({ratio_val:.1f}x avg) -- weak conviction")
-        else:
-            return (0, f"Normal {label} volume ({ratio_val:.1f}x avg)")
-
-    # Short-term whale (hourly data - noise-prone)
-    short_df = tf_data.get("short_term") if tf_data else None
-    votes["Whale Volume (Short)"] = _whale_vote(short_df, "hourly")
-
-    # Medium-term whale (daily data - most actionable)
-    medium_df = tf_data.get("medium_term") if tf_data else df  # fallback to main df
-    votes["Whale Volume (Medium)"] = _whale_vote(medium_df, "daily")
-
-    # Long-term whale (aggregate daily to weekly for structural patterns)
-    long_df = tf_data.get("long_term") if tf_data else df
-    if long_df is not None and not long_df.empty and "Volume" in long_df.columns:
-        # Resample daily to weekly for long-term volume patterns
-        weekly_df = long_df.resample("W").agg({
-            "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"
-        }).dropna()
-        votes["Whale Volume (Long)"] = _whale_vote(weekly_df, "weekly")
-    else:
-        votes["Whale Volume (Long)"] = (0, "No weekly volume data")
-
-    # --- RSI (medium momentum regime with hysteresis) ---
-    rsi_val = rsi(df["Close"]).iloc[-1]
+    rsi_val = rsi(medium_df["Close"]).iloc[-1] if medium_df is not None and not medium_df.empty else np.nan
     if not np.isnan(rsi_val):
         if rsi_val >= 52:
             votes["RSI (14)"] = (1, f"{rsi_val:.0f} -- above 52 momentum regime (bullish)")
@@ -473,22 +461,35 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     else:
         votes["RSI (14)"] = (0, "Insufficient data")
 
-    # --- EMA Crossover (9/21) -- short-term trend ---
-    ema_data = ema_crossover(df["Close"])
-    if not ema_data.empty:
-        if ema_data["cross_up"].iloc[-1]:
-            votes["EMA Crossover (9/21)"] = (1, "9 EMA just crossed above 21 EMA (fresh bullish crossover)")
-        elif ema_data["cross_down"].iloc[-1]:
-            votes["EMA Crossover (9/21)"] = (-1, "9 EMA just crossed below 21 EMA (fresh bearish crossover)")
-        elif ema_data["fast_above_slow"].iloc[-1]:
-            votes["EMA Crossover (9/21)"] = (1, "9 EMA above 21 EMA (short-term uptrend)")
-        else:
-            votes["EMA Crossover (9/21)"] = (-1, "9 EMA below 21 EMA (short-term downtrend)")
-    else:
-        votes["EMA Crossover (9/21)"] = (0, "Insufficient data")
+    votes["Whale Volume (Medium)"] = _whale_vote(medium_df, "daily")
 
-    # --- SMA Crossover (20/50) -- long-term trend ---
-    sma_data = sma_crossover(df["Close"])
+    # --- Long timeframe indicators (1mo) ---
+    if len(long_df) > 100:
+        vobhs_long = vobhs_composite(long_df)
+        atr_series = vobhs_long["modified_atr"]["atr"]
+        atr_current = atr_series.iloc[-1]
+        atr_avg = atr_series.rolling(20).mean().iloc[-1]
+        if not np.isnan(atr_current) and not np.isnan(atr_avg):
+            if atr_current < atr_avg * 0.8:
+                atr_vote = 1
+                atr_detail = f"ATR narrowing (${atr_current:,.0f} < avg ${atr_avg:,.0f}) -- low volatility, trend conviction"
+            elif atr_current > atr_avg * 1.2:
+                atr_vote = -1
+                atr_detail = f"ATR widening (${atr_current:,.0f} > avg ${atr_avg:,.0f}) -- high volatility, caution"
+            else:
+                atr_vote = 0
+                atr_detail = f"ATR normal (${atr_current:,.0f} ~ avg ${atr_avg:,.0f})"
+        else:
+            atr_vote = 0
+            atr_detail = "Insufficient ATR data"
+        stop_long = vobhs_long["modified_atr"]["stop_long"].iloc[-1]
+        stop_short = vobhs_long["modified_atr"]["stop_short"].iloc[-1]
+        atr_detail += f" | Stops: long ${stop_long:,.0f} / short ${stop_short:,.0f}"
+        votes["Modified ATR"] = (atr_vote, atr_detail)
+    else:
+        votes["Modified ATR"] = (0, "Insufficient data (<100 bars)")
+
+    sma_data = sma_crossover(long_df["Close"]) if long_df is not None and not long_df.empty else pd.DataFrame()
     if not sma_data.empty:
         if sma_data["fast_above_slow"].iloc[-1]:
             votes["SMA Crossover (20/50)"] = (1, "20 SMA above 50 SMA (bullish)")
@@ -496,6 +497,8 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
             votes["SMA Crossover (20/50)"] = (-1, "20 SMA below 50 SMA (bearish)")
     else:
         votes["SMA Crossover (20/50)"] = (0, "Insufficient data")
+
+    votes["Whale Volume (Long)"] = _whale_vote(long_df, "monthly")
 
     # --- Build weighted score ---
     indicator_rows = []
@@ -535,6 +538,48 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
             tf_normalized[tf] = tf_sums[tf] / tf_weight_sums[tf]
         else:
             tf_normalized[tf] = 0.0
+
+    # Intra-day score (display-only, excluded from weighted composite)
+    intraday_score = 0.0
+    if intraday_df is not None and not intraday_df.empty:
+        intraday_votes = {}
+        intraday_votes["Fib Short-term (2-3wk)"] = _fib_vote(
+            current_price,
+            fib_data.get("intraday_term", fib_data.get("short_term", {})),
+        )
+        intraday_votes["Volatility Oscillator"], intraday_votes["Boom Hunter Pro (BHS)"] = _vo_bhs_votes(intraday_df)
+
+        intraday_mom = momentum_bars(intraday_df)
+        if not intraday_mom.empty:
+            intraday_dir = int(intraday_mom["direction"].iloc[-1])
+            intraday_votes["Momentum Bars (ROC)"] = (1 if intraday_dir >= 1 else (-1 if intraday_dir <= -1 else 0), "Intra-day momentum")
+        else:
+            intraday_votes["Momentum Bars (ROC)"] = (0, "Insufficient data")
+
+        intraday_ema = ema_crossover(intraday_df["Close"])
+        if not intraday_ema.empty:
+            if intraday_ema["cross_up"].iloc[-1]:
+                intraday_votes["EMA Crossover (9/21)"] = (1, "Intra-day bullish crossover")
+            elif intraday_ema["cross_down"].iloc[-1]:
+                intraday_votes["EMA Crossover (9/21)"] = (-1, "Intra-day bearish crossover")
+            elif intraday_ema["fast_above_slow"].iloc[-1]:
+                intraday_votes["EMA Crossover (9/21)"] = (1, "Intra-day uptrend")
+            else:
+                intraday_votes["EMA Crossover (9/21)"] = (-1, "Intra-day downtrend")
+        else:
+            intraday_votes["EMA Crossover (9/21)"] = (0, "Insufficient data")
+
+        intraday_votes["Whale Volume (Short)"] = _whale_vote(intraday_df, "intraday")
+
+        short_weights = {name: weight for name, timeframe, weight, _ in indicators if timeframe == "Short"}
+        intraday_weight_sum = sum(short_weights.values())
+        if intraday_weight_sum > 0:
+            intraday_numerator = sum(
+                intraday_votes.get(name, (0, ""))[0] * weight
+                for name, weight in short_weights.items()
+            )
+            intraday_score = intraday_numerator / intraday_weight_sum
+    tf_normalized["Intraday"] = intraday_score
 
     # Conflict detection: flag when correlated indicators disagree
     CONFLICT_EXPLANATIONS = {
@@ -592,6 +637,9 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
     bearish = sum(1 for name, _, _, _ in indicators if votes.get(name, (0,))[0] < 0)
     neutral = sum(1 for name, _, _, _ in indicators if votes.get(name, (0,))[0] == 0)
 
+    tf_weights_out = dict(tf_weights)
+    tf_weights_out["Intraday"] = 0
+
     return {
         "signal": signal,
         "strength": strength,
@@ -602,7 +650,7 @@ def score_metal(df: pd.DataFrame, fib_data: dict, current_price: float,
         "total_indicators": len(indicators),
         "indicator_table": indicator_rows,
         "timeframe_scores": tf_normalized,
-        "timeframe_weights": tf_weights,
+        "timeframe_weights": tf_weights_out,
         "conflicts": conflicts,
     }
 

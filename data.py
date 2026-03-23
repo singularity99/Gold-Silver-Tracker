@@ -22,8 +22,14 @@ DEFAULT_ETC_TICKERS = {
 }
 
 # Shared history cache for both dashboard and simulator
-_HISTORY_CACHE: dict[tuple[str, str, str], pd.DataFrame] = {}
+_HISTORY_CACHE: dict[tuple[str, str, str, str | None], pd.DataFrame] = {}
 _HISTORY_CACHE_LOCK = Lock()
+
+
+def _cache_bucket(ttl_seconds: int | None) -> str | None:
+    if not ttl_seconds or ttl_seconds <= 0:
+        return None
+    return str(int(datetime.utcnow().timestamp() // ttl_seconds))
 
 
 def _download_history(ticker: str, start_key: str, interval: str, end_key: str | None = None) -> pd.DataFrame:
@@ -42,10 +48,10 @@ def _download_history(ticker: str, start_key: str, interval: str, end_key: str |
     return df
 
 
-def fetch_history_cached(ticker: str, start: datetime, interval: str) -> pd.DataFrame:
+def fetch_history_cached(ticker: str, start: datetime, interval: str, ttl_seconds: int | None = None) -> pd.DataFrame:
     """Fetch history with caching. Used by both dashboard and simulator. Non-blocking read."""
     start_key = start.date().isoformat()
-    key = (ticker, start_key, interval)
+    key = (ticker, start_key, interval, _cache_bucket(ttl_seconds))
     
     # Fast path: check cache without blocking
     with _HISTORY_CACHE_LOCK:
@@ -189,16 +195,18 @@ def fetch_historical(ticker: str, period: str = "2y", interval: str = "1d") -> p
 
 
 def fetch_multi_timeframe_data(ticker: str):
-    """Fetch historical data at three timeframes for Fibonacci + technicals. Uses shared cache."""
+    """Fetch historical data across 4 timeframes for Fibonacci + technicals. Uses shared cache."""
     now = datetime.utcnow()
-    long_start = now - timedelta(days=730)
-    med_start = now - timedelta(days=90)
-    short_start = now - timedelta(days=30)
+    intraday_start = now - timedelta(days=59)
+    short_start = now - timedelta(days=90)
+    med_start = now - timedelta(days=730)
+    long_start = now - timedelta(days=3650)
     
     return {
-        "long_term": fetch_history_cached(ticker, long_start, "1d"),
-        "medium_term": fetch_history_cached(ticker, med_start, "1d"),
-        "short_term": fetch_history_cached(ticker, short_start, "1h"),
+        "intraday_term": fetch_history_cached(ticker, intraday_start, "5m", ttl_seconds=300),
+        "short_term": fetch_history_cached(ticker, short_start, "1h", ttl_seconds=300),
+        "medium_term": fetch_history_cached(ticker, med_start, "1d", ttl_seconds=300),
+        "long_term": fetch_history_cached(ticker, long_start, "1mo", ttl_seconds=300),
     }
 
 

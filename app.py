@@ -415,23 +415,23 @@ with tab_dashboard:
         silver_tf = fetch_multi_timeframe_data("SI=F")
         gold_fib = multi_timeframe_fibonacci(gold_tf)
         silver_fib = multi_timeframe_fibonacci(silver_tf)
-        gold_daily = gold_tf["long_term"]
-        silver_daily = silver_tf["long_term"]
+        gold_base = gold_tf["medium_term"]
+        silver_base = silver_tf["medium_term"]
 
         gold_score = score_metal(
-            gold_daily,
+            gold_base,
             gold_fib,
             spot["gold"]["price_usd"],
             tf_weights=tf_weight_config,
             tf_data=gold_tf,
-        ) if not gold_daily.empty else None
+        ) if not gold_base.empty else None
         silver_score = score_metal(
-            silver_daily,
+            silver_base,
             silver_fib,
             spot["silver"]["price_usd"],
             tf_weights=tf_weight_config,
             tf_data=silver_tf,
-        ) if not silver_daily.empty else None
+        ) if not silver_base.empty else None
 
         if st.session_state.get("macro_overlay_enabled", True):
             if gold_score:
@@ -695,7 +695,12 @@ with tab_charts:
         tf_data = fetch_multi_timeframe_data(spot_ticker)
         fib = multi_timeframe_fibonacci(tf_data)
 
-    tf_options = {"2 Years": "long_term", "3 Months": "medium_term", "4 Weeks": "short_term"}
+    tf_options = {
+        "Intra-day (5m)": "intraday_term",
+        "Short (1h)": "short_term",
+        "Medium (1d)": "medium_term",
+        "Long (1mo)": "long_term",
+    }
     selected_tf = st.radio("Timeframe", list(tf_options.keys()), horizontal=True, key="chart_tf_select")
     tf_key = tf_options[selected_tf]
     chart_df = tf_data[tf_key]

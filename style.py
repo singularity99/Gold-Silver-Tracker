@@ -574,17 +574,18 @@ def signal_card_html(metal, score, price_usd) -> str:
 
     metal_color = GOLD if metal == "gold" else SILVER
 
-    def _sub(tf, label, weight):
-        val = round(tf_scores[tf], 2)
+    def _sub(tf, label, weight=None):
+        val = round(tf_scores.get(tf, 0.0), 2)
         if val >= 0.40: slabel, scol = "Strong Buy", GREEN
         elif val >= 0.20: slabel, scol = "Buy", GREEN
         elif val <= -0.40: slabel, scol = "Strong Sell", RED
         elif val <= -0.20: slabel, scol = "Sell", RED
         else: slabel, scol = "Neutral", AMBER
         vcol = GREEN if val > 0.05 else (RED if val < -0.05 else AMBER)
+        weight_label = f"{weight}%" if weight is not None else "view"
         return f"""
         <div class="sub-score">
-            <div class="sub-score-label">{label} ({weight}%)</div>
+            <div class="sub-score-label">{label} ({weight_label})</div>
             <div class="sub-score-val" style="color:{vcol}">{val:+.2f}</div>
             <div class="sub-score-signal" style="color:{scol}">{slabel}</div>
         </div>"""
@@ -644,6 +645,7 @@ def signal_card_html(metal, score, price_usd) -> str:
         <div style="font-size:0.7rem;color:{TEXT_MUTED};margin-bottom:2px;">WEIGHTED COMPOSITE SCORE</div>
         <div class="score-big {score_cls}">{comp:+.2f}</div>
         <div class="sub-scores">
+            {_sub("Intraday", "Intra-day")}
             {_sub("Short", "Short", score["timeframe_weights"]["Short"])}
             {_sub("Medium", "Medium", score["timeframe_weights"]["Medium"])}
             {_sub("Long", "Long", score["timeframe_weights"]["Long"])}
