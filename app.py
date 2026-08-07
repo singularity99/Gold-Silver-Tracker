@@ -288,7 +288,7 @@ st.sidebar.checkbox(
     "Enable macro regime overlay",
     key="macro_overlay_enabled",
     on_change=_persist_config,
-    help="Zeburg (TM)-inspired regime filter adjusts final signal thresholds and small phase bias.",
+    help="Zeberg Macro Navigation Framework (TM) regime filter adjusts final signal thresholds and applies a small phase bias.",
 )
 
 st.sidebar.subheader("Timeframe Weights")
@@ -441,7 +441,7 @@ with tab_dashboard:
             if silver_score:
                 silver_score = apply_macro_overlay(silver_score, macro_state, "silver")
 
-    with st.expander("Macro Business Indicators (Zeburg (TM) Lens)", expanded=False):
+    with st.expander("Macro Business Indicators (Zeberg (TM) Lens)", expanded=False):
         phase = macro_state.get("phase", "Unknown")
         conf = macro_state.get("confidence", 0.0)
         source = macro_state.get("source", "unknown")
@@ -459,7 +459,8 @@ with tab_dashboard:
             if not indicators:
                 return "<p style='color:#6B7280;'>No data</p>"
             
-            html = '<table style="width:100%;border-collapse:collapse;font-size:0.75rem;">'
+            html = ('<table style="width:100%;border-collapse:collapse;font-size:0.75rem;'
+                    'table-layout:fixed;word-break:break-word;">')
             html += '<thead><tr style="border-bottom:1px solid #2D3139;">'
             html += '<th style="text-align:left;padding:4px 6px;color:#9CA3AF;">Indicator</th>'
             html += '<th style="text-align:center;padding:4px 6px;color:#9CA3AF;">Status</th>'
@@ -471,17 +472,15 @@ with tab_dashboard:
                 status = ind.get("status", "Waiting")
                 detail = ind.get("detail", "")
                 vote = ind.get("vote", 0)
-                crossed = ind.get("crossed", False)
-                
-                # Color coding
-                if crossed:
-                    status_color = "#EF5350" if vote < 0 else "#26A69A"
-                    status_style = f"color:{status_color};font-weight:600;"
+
+                # Colour by position relative to the tier's equilibrium.
+                if vote > 0:
+                    status_style = "color:#26A69A;font-weight:600;"
+                elif vote < 0:
+                    status_style = "color:#EF5350;font-weight:600;"
                 else:
-                    status_style = "color:#FFB300;"
-                
-                vote_color = "#26A69A" if vote > 0 else ("#EF5350" if vote < 0 else "#6B7280")
-                
+                    status_style = "color:#6B7280;"
+
                 html += '<tr style="border-bottom:1px solid #2D3139;">'
                 html += f'<td style="text-align:left;padding:3px 6px;">{name}</td>'
                 html += f'<td style="text-align:center;padding:3px 6px;{status_style}">{status}</td>'
@@ -491,22 +490,28 @@ with tab_dashboard:
             html += '</tbody></table>'
             return html
 
-        vcols = st.columns(3)
-        vcols[0].markdown("**Leading**")
-        vcols[0].markdown(_indicators_table(macro_state.get("leading_indicators", [])), unsafe_allow_html=True)
-        vcols[1].markdown("**Coincident**")
-        vcols[1].markdown(_indicators_table(macro_state.get("coincident_indicators", [])), unsafe_allow_html=True)
-        vcols[2].markdown("**Imminent Recession**")
-        vcols[2].markdown(_indicators_table(macro_state.get("imminent_indicators", [])), unsafe_allow_html=True)
+        # Leading and coincident drive the phase transitions; lagging and
+        # imminent are context, so they sit on a second row.
+        drivers = st.columns(2)
+        drivers[0].markdown("**Leading** — rolls over first (Expansion → Slowdown)")
+        drivers[0].markdown(_indicators_table(macro_state.get("leading_indicators", [])), unsafe_allow_html=True)
+        drivers[1].markdown("**Coincident** — confirms (Slowdown → Contraction)")
+        drivers[1].markdown(_indicators_table(macro_state.get("coincident_indicators", [])), unsafe_allow_html=True)
+
+        context = st.columns(2)
+        context[0].markdown("**Lagging** — adjusts last")
+        context[0].markdown(_indicators_table(macro_state.get("lagging_indicators", [])), unsafe_allow_html=True)
+        context[1].markdown("**Imminent Recession** — phase-conditional")
+        context[1].markdown(_indicators_table(macro_state.get("imminent_indicators", [])), unsafe_allow_html=True)
 
         st.markdown("**Macro metrics detail**")
         m = macro_state.get("metrics", {})
         metrics_df = pd.DataFrame([
+            {"Metric": "Leading composite (z vs trend)", "Value": m.get("leading_composite", np.nan)},
+            {"Metric": "Coincident composite (% annualized)", "Value": m.get("coincident_composite", np.nan)},
+            {"Metric": "Lagging composite (z vs trend)", "Value": m.get("lagging_composite", np.nan)},
             {"Metric": "Yield spread (10Y-2Y)", "Value": m.get("yield_spread_10y2y", np.nan)},
             {"Metric": "Yield spread (10Y-3M)", "Value": m.get("yield_spread_10y3m", np.nan)},
-            {"Metric": "Building permits cross (%)", "Value": m.get("building_permits_cross", np.nan)},
-            {"Metric": "Housing cross (%)", "Value": m.get("housing_cross", np.nan)},
-            {"Metric": "Claims ratio (13w/52w)", "Value": m.get("claims_ratio", np.nan)},
             {"Metric": "Sahm value (pp)", "Value": m.get("sahm_value", np.nan)},
             {"Metric": "Credit spread level", "Value": m.get("credit_spread_level", np.nan)},
             {"Metric": "St. Louis FSI", "Value": m.get("financial_stress_level", np.nan)},
@@ -555,11 +560,17 @@ with tab_dashboard:
             "Each of the 14 indicators votes **+1** (bullish), **0** (neutral), or **-1** (bearish), "
             "multiplied by its weight. The composite score is the weighted sum divided by 100. "
             "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range.\n\n"
-            "**Macro overlay (optional, Zeburg (TM)-inspired):**\n"
-            "- Regime classification: Expansion / Slowdown / Contraction / Recovery, "
-            "or **No signal** when no indicator has crossed (no bias is applied).\n"
+            "**Macro overlay (optional, Zeberg Macro Navigation Framework (TM)):**\n"
+            "- Leading, coincident and lagging indicators are standardised into composite "
+            "indices and read against a long-term growth equilibrium.\n"
+            "- Regime is a persistent state advanced in sequence: leading rolls over first "
+            "(Expansion to Slowdown), coincident growth turning negative confirms "
+            "(Slowdown to Contraction), lagging adjusts last.\n"
+            "- Imminent Recession Indicators are phase-conditional: evaluated only during "
+            "Slowdown, and only meaningful when they cluster.\n"
             "- Regime acts as a **modifier** (small score bias + adaptive thresholds), not a replacement for technical votes.\n"
-            "- Lower-layer signals (market/technicals) do not override higher-layer regime context.\n\n"
+            "- Lower-layer signals (market/technicals) do not override higher-layer regime context.\n"
+            "- **No signal** when the composites cannot be built (no bias is applied).\n\n"
         )
         # Dynamic indicator table based on current weight config
         rescaled = _rescale_indicators(tf_weight_config)
