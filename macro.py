@@ -147,25 +147,25 @@ def _detect_ma_cross(series: pd.Series, window: int = 26, asof=None) -> dict:
     """
     v = _slice_asof(series, asof)
     if v is None or len(v) < window + 1:
-        return {"crossed": False, "direction": None, "current": np.nan, "ma": np.nan, "distance": np.nan}
-    
+        return {"crossed": False, "direction": None, "current": np.nan, "prev": np.nan, "ma": np.nan, "distance": np.nan}
+
     ma = v.rolling(window).mean()
     current = float(v.iloc[-1])
     prev = float(v.iloc[-2])
     current_ma = float(ma.iloc[-1])
     prev_ma = float(ma.iloc[-2])
-    
+
     crossed_below = prev >= prev_ma and current < current_ma
     crossed_above = prev <= prev_ma and current > current_ma
-    
+
     distance = (current - current_ma) / current_ma * 100 if current_ma != 0 else 0
-    
+
     if crossed_below:
-        return {"crossed": True, "direction": "below", "current": current, "ma": current_ma, "distance": distance}
+        return {"crossed": True, "direction": "below", "current": current, "prev": prev, "ma": current_ma, "distance": distance}
     elif crossed_above:
-        return {"crossed": True, "direction": "above", "current": current, "ma": current_ma, "distance": distance}
+        return {"crossed": True, "direction": "above", "current": current, "prev": prev, "ma": current_ma, "distance": distance}
     else:
-        return {"crossed": False, "direction": None, "current": current, "ma": current_ma, "distance": distance}
+        return {"crossed": False, "direction": None, "current": current, "prev": prev, "ma": current_ma, "distance": distance}
 
 
 def _detect_trend_cross(series: pd.Series, short_window: int = 13, long_window: int = 52, asof=None) -> dict:
@@ -205,7 +205,7 @@ def _detect_sahm_trigger(unrate_series: pd.Series, asof=None) -> dict:
     """
     v = _slice_asof(unrate_series, asof)
     if v is None or len(v) < 12:
-        return {"crossed": False, "triggered": False, "value": np.nan}
+        return {"crossed": False, "triggered": False, "value": np.nan, "current": np.nan}
     
     three_month_avg = float(v.tail(3).mean())
     twelve_month_low = float(v.tail(12).min())
@@ -223,6 +223,7 @@ def _detect_sahm_trigger(unrate_series: pd.Series, asof=None) -> dict:
         "crossed": crossed,
         "triggered": triggered,
         "value": sahm_value,
+        "current": sahm_value,
         "threshold": 0.5
     }
 
@@ -256,7 +257,7 @@ def _indicator_vote(name: str, cross_info: dict, indicator_type: str) -> dict:
         status = "Crossed"
         if direction == "below":
             # Crossing below equilibrium is typically bearish for macro
-            if indicator_type in ("leading", "coincident"):
+            if indicator_type in ("leading", "coincident", "growth"):
                 vote = -1  # Bearish signal
                 detail = f"Crossed below equilibrium ({cross_info.get('prev', 0):.2f} -> {cross_info.get('current', 0):.2f})"
             else:  # imminent
@@ -264,7 +265,7 @@ def _indicator_vote(name: str, cross_info: dict, indicator_type: str) -> dict:
                 detail = f"Trigger crossed ({cross_info.get('value', 0):.2f})"
         elif direction == "above":
             # Crossing above equilibrium is typically bullish
-            if indicator_type in ("leading", "coincident"):
+            if indicator_type in ("leading", "coincident", "growth"):
                 vote = 1  # Bullish signal
                 detail = f"Crossed above equilibrium ({cross_info.get('prev', 0):.2f} -> {cross_info.get('current', 0):.2f})"
             else:  # imminent
@@ -295,6 +296,14 @@ def _indicator_vote(name: str, cross_info: dict, indicator_type: str) -> dict:
                 else:
                     status = "Waiting"
                     detail = f"Sahm value {value:.2f}pp (threshold 0.5pp)"
+            elif indicator_type == "growth":
+                # Rate series hover near zero, so distance as a percent of the
+                # moving average is unstable. Compare in the series' own units.
+                if current < ma:
+                    status = "Waiting (below MA)"
+                else:
+                    status = "Waiting (above MA)"
+                detail = f"{current:.2f}%/mo vs {ma:.2f}%/mo average"
             elif not np.isnan(distance):
                 if distance < 0:
                     status = "Waiting (below MA)"
@@ -381,6 +390,10 @@ def _build_macro_response(
 
 
 def _phase_from_scores(leading_score: float, coincident_score: float, imminent_score: float) -> str:
+    # No indicator voted at all. Falling through to a named regime here would
+    # apply that regime's phase_bias to the composite score on zero evidence.
+    if leading_score == 0 and coincident_score == 0 and imminent_score == 0:
+        return "No signal"
     if coincident_score <= -0.5 or (coincident_score < 0 and imminent_score <= -0.5):
         return "Contraction"
     if coincident_score >= 0.25 and leading_score >= 0:
@@ -555,13 +568,16 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
     # ── Coincident Indicators ──────────────────────────────────────────────────
     coincident_indicators = []
     
-    # 1. Payrolls - MA crossover
+    # 1. Payrolls - month-over-month growth vs its trailing average.
+    #    PAYEMS is a near-monotonic level series, so a level/MA cross only
+    #    fires in an outright collapse. The signal lives in the rate of change.
     payroll_series = _slice_asof(b.get("payrolls", pd.Series(dtype=float)), asof)
-    payroll_cross = _detect_ma_cross(payroll_series, window=26)
+    payroll_growth = payroll_series.pct_change().dropna() * 100
+    payroll_cross = _detect_ma_cross(payroll_growth, window=26)
     coincident_indicators.append(_indicator_vote(
-        "Nonfarm payrolls", 
-        payroll_cross, 
-        "coincident"
+        "Nonfarm payrolls",
+        payroll_cross,
+        "growth"
     ))
     
     # 2. Industrial production - MA crossover
@@ -584,9 +600,12 @@ def get_macro_framework_state(asof=None, series_bundle: dict[str, pd.Series] | N
     if not np.isnan(ratio):
         claims_cross["current"] = ratio
         if ratio >= 1.08:
+            # Accelerating claims are recessionary. For imminent indicators
+            # "below" encodes trigger-fired (bearish), so use it here even
+            # though the ratio itself has risen above trend.
             claims_cross["crossed"] = True
-            claims_cross["direction"] = "above"
-            claims_cross["detail_extension"] = f"Claims accelerating (ratio {ratio:.2f})"
+            claims_cross["direction"] = "below"
+            claims_cross["value"] = ratio
     imminent_indicators.append(_indicator_vote(
         "Initial claims acceleration", 
         claims_cross, 

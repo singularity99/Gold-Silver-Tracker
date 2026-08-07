@@ -556,7 +556,8 @@ with tab_dashboard:
             "multiplied by its weight. The composite score is the weighted sum divided by 100. "
             "Sub-scores per timeframe are normalised to the same -1.0 to +1.0 range.\n\n"
             "**Macro overlay (optional, Zeburg (TM)-inspired):**\n"
-            "- Regime classification: Expansion / Slowdown / Contraction / Recovery.\n"
+            "- Regime classification: Expansion / Slowdown / Contraction / Recovery, "
+            "or **No signal** when no indicator has crossed (no bias is applied).\n"
             "- Regime acts as a **modifier** (small score bias + adaptive thresholds), not a replacement for technical votes.\n"
             "- Lower-layer signals (market/technicals) do not override higher-layer regime context.\n\n"
         )
