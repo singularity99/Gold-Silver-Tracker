@@ -347,8 +347,10 @@ else:
     st.sidebar.caption("Add GITHUB_TOKEN + GITHUB_REPO secrets")
 
 
-# Cache macro state for 5 minutes (shorter TTL for responsiveness to crossovers)
-@st.cache_data(show_spinner=False, ttl=300)
+# The composites are built from monthly series, so there is nothing to gain
+# from refetching often. Six hours still picks up a FRED release the same day
+# without pulling 17 CSVs every five minutes.
+@st.cache_data(show_spinner=False, ttl=21600)
 def _macro_state_cached():
     return get_macro_framework_state()
 
