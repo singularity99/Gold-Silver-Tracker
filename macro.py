@@ -51,6 +51,11 @@ FRED_SERIES = {
     "factory_orders": "AMTMNO",
 }
 
+# Bump on any change to how a phase is computed. Callers pass this into their
+# cache key, because Streamlit hashes only the cached function's own body and
+# will otherwise keep serving a phase computed by a previous deployment.
+FRAMEWORK_VERSION = "2026.08.07-composite-1"
+
 # OURS: composite construction parameters. The paper withholds its own
 # (section 9.1), so these were chosen by sweeping smoothing and dead-band
 # against NBER dating back to 1960.

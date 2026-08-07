@@ -23,7 +23,7 @@ from portfolio import (
 from news import fetch_catalyst_news
 from analysis import generate_summary, build_context_prompt
 import chat
-from macro import get_macro_framework_state, apply_macro_overlay
+from macro import get_macro_framework_state, apply_macro_overlay, FRAMEWORK_VERSION
 from style import (
     GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED,
     ticker_strip_html, signal_card_html, etc_tile_html,
@@ -350,8 +350,13 @@ else:
 # The composites are built from monthly series, so there is nothing to gain
 # from refetching often. Six hours still picks up a FRED release the same day
 # without pulling 17 CSVs every five minutes.
+#
+# `version` is unused inside the function but is part of the cache key, so a
+# deploy that changes how phases are computed invalidates the entry. Without
+# it Streamlit hashes only this function's body -- which never changes -- and
+# serves the previous deployment's phase for the whole TTL.
 @st.cache_data(show_spinner=False, ttl=21600)
-def _macro_state_cached():
+def _macro_state_cached(version: str = FRAMEWORK_VERSION):
     return get_macro_framework_state()
 
 
