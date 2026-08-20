@@ -109,6 +109,23 @@ def _compute_change_pct(ticker: str, info, last_price: float) -> float:
     return 0.0
 
 
+def _last_close_fallback(ticker: str) -> float:
+    """Second attempt at a price via the history endpoint.
+
+    fast_info and history are different Yahoo endpoints and do not fail
+    together, so this recovers most transient misses. Without it a single
+    failed call is cached for the whole TTL and the card renders "N/A".
+    """
+    try:
+        h = yf.Ticker(ticker).history(period="5d", interval="1d")
+        closes = h["Close"].dropna() if not h.empty and "Close" in h else None
+        if closes is not None and not closes.empty:
+            return float(closes.iloc[-1])
+    except Exception:
+        pass
+    return np.nan
+
+
 def fetch_spot_prices():
     """Fetch current spot prices for gold and silver, plus GBP/USD rate."""
     result = {}
@@ -116,12 +133,12 @@ def fetch_spot_prices():
         try:
             info = yf.Ticker(ticker).fast_info
             last_price = _safe_float(info.get("lastPrice", np.nan), np.nan)
-            result[metal] = {
-                "price_usd": last_price,
-                "change_pct": _compute_change_pct(ticker, info, last_price),
-            }
+            change_pct = _compute_change_pct(ticker, info, last_price)
         except Exception:
-            result[metal] = {"price_usd": np.nan, "change_pct": 0.0}
+            last_price, change_pct = np.nan, 0.0
+        if np.isnan(last_price):
+            last_price = _last_close_fallback(ticker)
+        result[metal] = {"price_usd": last_price, "change_pct": change_pct}
 
     try:
         gbp_usd = yf.Ticker(FX_TICKER).fast_info["lastPrice"]
@@ -152,16 +169,17 @@ def fetch_etc_prices(tickers: list[str]):
     """Fetch current prices for user-selected ETC tickers."""
     result = {}
     for ticker in tickers:
+        currency = "GBp"
         try:
             info = yf.Ticker(ticker).fast_info
             last_price = _safe_float(info.get("lastPrice", np.nan), np.nan)
-            result[ticker] = {
-                "price": last_price,
-                "currency": info.get("currency", "GBp"),
-                "change_pct": _compute_change_pct(ticker, info, last_price),
-            }
+            currency = info.get("currency", "GBp")
+            change_pct = _compute_change_pct(ticker, info, last_price)
         except Exception:
-            result[ticker] = {"price": np.nan, "currency": "GBp", "change_pct": 0.0}
+            last_price, change_pct = np.nan, 0.0
+        if np.isnan(last_price):
+            last_price = _last_close_fallback(ticker)
+        result[ticker] = {"price": last_price, "currency": currency, "change_pct": change_pct}
     return result
 
 
@@ -214,6 +232,11 @@ def compute_tracking_difference(spot_series: pd.Series, etc_series: pd.Series) -
     """Compute percentage tracking difference between spot and ETC over aligned dates."""
     aligned = pd.concat([spot_series, etc_series], axis=1, join="inner")
     aligned.columns = ["spot", "etc"]
+    # Yahoo emits a row for a session that has not closed yet, with a NaN
+    # close. Aligning on date keeps it, which makes the newest point NaN --
+    # and a NaN in the first row would poison every point via the
+    # normalisation below.
+    aligned = aligned.dropna(subset=["spot", "etc"])
     if aligned.empty:
         return pd.Series(dtype=float)
     spot_norm = aligned["spot"] / aligned["spot"].iloc[0]

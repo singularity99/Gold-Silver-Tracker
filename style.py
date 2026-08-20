@@ -562,6 +562,9 @@ def ticker_strip_html(gold_usd, gold_chg, silver_usd, silver_chg,
 
 
 def signal_card_html(metal, score, price_usd) -> str:
+    # price_usd is NaN whenever the quote lookup failed. Format defensively so
+    # the card degrades to "N/A" like the ticker strip, rather than "$nan".
+    price_str = f"${price_usd:,.0f}" if price_usd == price_usd else "N/A"
     comp = score["composite_score"]
     sig = score["signal"]
     sig_cls = sig.lower().replace(" / take profit", "").replace(" ", "-")
@@ -639,7 +642,7 @@ def signal_card_html(metal, score, price_usd) -> str:
     return f"""
     <div class="signal-card {sig_cls}">
         <div class="signal-header">
-            <span class="signal-metal" style="color:{metal_color}">{metal.upper()} &mdash; ${price_usd:,.0f}</span>
+            <span class="signal-metal" style="color:{metal_color}">{metal.upper()} &mdash; {price_str}</span>
             <span class="signal-label {sig_cls}">{sig}</span>
         </div>
         <div style="font-size:0.7rem;color:{TEXT_MUTED};margin-bottom:2px;">WEIGHTED COMPOSITE SCORE</div>
