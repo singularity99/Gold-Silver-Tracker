@@ -24,11 +24,12 @@ from news import fetch_catalyst_news
 from analysis import generate_summary, build_context_prompt
 import chat
 from macro import get_macro_framework_state, apply_macro_overlay, FRAMEWORK_VERSION
+from gold_lens import get_gold_lens_state, LENS_VERSION
 from style import (
-    GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED,
+    GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED, BG_CARD,
     ticker_strip_html, signal_card_html, etc_tile_html,
     news_card_html, port_stat_html, render_component,
-    analysis_card_html,
+    analysis_card_html, gold_lens_quadrant_html, gold_lens_drivers_html,
 )
 from simulator import run_simulations, clear_simulator_caches
 
@@ -360,6 +361,13 @@ def _macro_state_cached(version: str = FRAMEWORK_VERSION):
     return get_macro_framework_state()
 
 
+# Same reasoning as above: daily series, so six hours, and `version` keyed to
+# the lens so a change to how a reading is computed invalidates the entry.
+@st.cache_data(show_spinner=False, ttl=21600)
+def _gold_lens_cached(version: str = LENS_VERSION):
+    return get_gold_lens_state()
+
+
 @st.cache_data(show_spinner=False, ttl=300)
 def _fetch_spot_cached():
     return fetch_spot_prices()
@@ -529,6 +537,42 @@ with tab_dashboard:
             {"Metric": "CPI YoY (%)", "Value": m.get("cpi_yoy", np.nan)},
         ])
         st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+
+    with st.expander("Gold Macro Lens (real yields, breakevens, dollar, Fed balance sheet)", expanded=False):
+        lens = _gold_lens_cached()
+        q = lens.get("quadrant", {})
+        stance_colour = {"supportive": GREEN, "hostile": RED}.get(q.get("stance"), AMBER)
+
+        lcols = st.columns(4)
+        lcols[0].metric("Backdrop", q.get("name", "—"))
+        lcols[1].metric("Δ real yield (3m)", f"{q['dr']:+.2f}pp" if q.get("dr") is not None else "—")
+        lcols[2].metric("Δ breakeven (3m)", f"{q['db']:+.2f}pp" if q.get("db") is not None else "—")
+        lcols[3].metric("Headwinds", f"{lens.get('headwinds', 0)} of {len(lens.get('drivers', []))}")
+        st.markdown(
+            f'<div style="border-left:3px solid {stance_colour};padding:8px 12px;'
+            f'background:{BG_CARD};border-radius:3px;font-size:0.8rem;color:#9CA3AF">'
+            f'{q.get("note", "")}</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(gold_lens_quadrant_html(q), unsafe_allow_html=True)
+        st.caption(
+            "Scenario (d) — real yields falling while breakevens rise — is the top-left box. "
+            "It becomes live when the marker crosses left of centre, not when gold rallies."
+        )
+
+        st.markdown("**Drivers**")
+        st.markdown(gold_lens_drivers_html(lens.get("drivers", [])), unsafe_allow_html=True)
+
+        diag = lens.get("diagnostics") or {}
+        if diag:
+            st.caption(
+                f"Read direction, not level. Over 5 years gold and the real yield are "
+                f"**positively** correlated in levels ({diag.get('corr_levels'):+.2f}) — official buying "
+                f"broke the textbook link. The inverse survives only in changes "
+                f"({diag.get('corr_monthly_chg'):+.2f} monthly, n={diag.get('n')}). "
+                f"This panel is observational: it implies no price and generates no signal."
+            )
 
     alerts = []
     for metal_name, score_obj in (("gold", gold_score), ("silver", silver_score)):

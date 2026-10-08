@@ -719,3 +719,142 @@ def port_stat_html(label, value) -> str:
         <div class="port-stat-label">{label}</div>
         <div class="port-stat-val">{value}</div>
     </div>"""
+
+
+# ─────────────────────── GOLD MACRO LENS ───────────────────────
+
+_LENS_STANCE_COLOR = {"good": GREEN, "bad": RED, "neutral": AMBER, "none": TEXT_MUTED}
+# Readable on #0E1117; TEXT_MUTED (#6B7280) fails 4.5:1 at this size.
+_LENS_MUTED = "#9CA3AF"
+
+
+def _lens_sparkline(values: list, colour: str, w: int = 150, h: int = 20) -> str:
+    """Inline sparkline. Empty series renders as nothing, not a broken path."""
+    if not values or len(values) < 2:
+        return ""
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1.0
+    pts = " ".join(
+        f"{(i / (len(values) - 1)) * w:.1f},{h - ((v - lo) / span) * (h - 2):.1f}"
+        for i, v in enumerate(values)
+    )
+    return (f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="none" aria-hidden="true" '
+            f'style="width:100%;height:{h}px;display:block;margin-top:3px">'
+            f'<polyline points="{pts}" fill="none" stroke="{colour}" stroke-width="1.4" '
+            f'vector-effect="non-scaling-stroke"/></svg>')
+
+
+def gold_lens_quadrant_html(quad: dict) -> str:
+    """The primary read: 3m change in real yield against 3m change in breakeven."""
+    trail = quad.get("trail") or []
+    if not trail:
+        return (f'<p style="color:{_LENS_MUTED};font-size:0.8rem">'
+                f'Quadrant unavailable — insufficient history.</p>')
+
+    X0, X1, Y0, Y1 = 40, 520, 8, 318
+    DRMAX, DBMAX = 0.8, 0.25
+
+    def sx(dr):
+        return X0 + ((max(-DRMAX, min(DRMAX, dr)) + DRMAX) / (2 * DRMAX)) * (X1 - X0)
+
+    def sy(db):
+        return Y1 - ((max(-DBMAX, min(DBMAX, db)) + DBMAX) / (2 * DBMAX)) * (Y1 - Y0)
+
+    pts = " ".join(f"{sx(p['dr']):.1f},{sy(p['db']):.1f}" for p in trail)
+    dots = []
+    for i, p in enumerate(trail):
+        last = i == len(trail) - 1
+        dots.append(
+            f'<circle cx="{sx(p["dr"]):.1f}" cy="{sy(p["db"]):.1f}" r="{7 if last else 3.2}" '
+            f'fill="{RED if last and quad["stance"] == "hostile" else (GREEN if last else TEXT_MUTED)}" '
+            f'{f"stroke=\'#FAFAFA\' stroke-width=\'2\'" if last else ""}/>'
+        )
+    first, last_p = trail[0], trail[-1]
+
+    return f"""
+    <svg viewBox="0 0 560 348" style="width:100%;height:auto;display:block" role="img"
+         aria-label="Quadrant of 3-month change in the 10-year real yield against the 3-month change in the 10-year breakeven, with a {len(trail)}-month trail ending in {quad['name']}">
+      <rect x="40" y="8" width="240" height="155" fill="{GREEN}" opacity="0.10"/>
+      <rect x="280" y="8" width="240" height="155" fill="{AMBER}" opacity="0.08"/>
+      <rect x="40" y="163" width="240" height="155" fill="{AMBER}" opacity="0.08"/>
+      <rect x="280" y="163" width="240" height="155" fill="{RED}" opacity="0.10"/>
+      <text x="50" y="26" font-size="11" font-weight="700" fill="{GREEN}">DEBASEMENT</text>
+      <text x="50" y="40" font-size="9.5" fill="{_LENS_MUTED}">real yields fall, inflation bid — gold's best</text>
+      <text x="510" y="26" font-size="11" font-weight="700" fill="{AMBER}" text-anchor="end">REFLATIONARY TIGHTENING</text>
+      <text x="510" y="40" font-size="9.5" fill="{_LENS_MUTED}" text-anchor="end">both rising — real yields still win</text>
+      <text x="50" y="305" font-size="11" font-weight="700" fill="{AMBER}">DISINFLATIONARY EASING</text>
+      <text x="50" y="291" font-size="9.5" fill="{_LENS_MUTED}">both falling — mildly supportive</text>
+      <text x="510" y="305" font-size="11" font-weight="700" fill="{RED}" text-anchor="end">REAL-RATE SHOCK</text>
+      <text x="510" y="291" font-size="9.5" fill="{_LENS_MUTED}" text-anchor="end">real up, hedge unwanted — gold's worst</text>
+      <line x1="40" y1="163" x2="520" y2="163" stroke="{BORDER}"/>
+      <line x1="280" y1="8" x2="280" y2="318" stroke="{BORDER}"/>
+      <rect x="40" y="8" width="480" height="310" fill="none" stroke="{BORDER}"/>
+      <polyline points="{pts}" fill="none" stroke="{TEXT_MUTED}" stroke-width="1.3" stroke-dasharray="3,3"/>
+      {''.join(dots)}
+      <text x="{sx(last_p['dr']) - 12:.1f}" y="{sy(last_p['db']) + 4:.1f}" font-size="10.5"
+            font-weight="700" fill="#FAFAFA" text-anchor="end">{last_p['m']}</text>
+      <text x="{sx(first['dr']) + 9:.1f}" y="{sy(first['db']) + 4:.1f}" font-size="10"
+            fill="{_LENS_MUTED}">{first['m']}</text>
+      <text x="280" y="340" font-size="10" fill="{_LENS_MUTED}" text-anchor="middle">3-month change in 10-yr REAL YIELD →</text>
+      <text x="16" y="163" font-size="10" fill="{_LENS_MUTED}" text-anchor="middle" transform="rotate(-90 16 163)">3m change in BREAKEVEN →</text>
+      <text x="36" y="166" font-size="9" fill="{_LENS_MUTED}" text-anchor="end">0</text>
+    </svg>"""
+
+
+def gold_lens_drivers_html(drivers: list) -> str:
+    """The detail beneath the quadrant: level, direction, 5-year position."""
+    if not drivers:
+        return f'<p style="color:{_LENS_MUTED};font-size:0.8rem">No driver data.</p>'
+
+    rows = []
+    for d in drivers:
+        col = _LENS_STANCE_COLOR.get(d.get("stance", "none"), TEXT_MUTED)
+        dp = d.get("dp", 2)
+        unit = d.get("unit", "")
+
+        def _sgn(v):
+            return "—" if v is None else f"{v:+.{dp}f}{unit}"
+
+        pct, lo, hi, raw = d.get("pct5y"), d.get("min5y"), d.get("max5y"), d.get("raw")
+        if None not in (pct, lo, hi, raw) and hi != lo:
+            pos = max(0.0, min(100.0, (raw - lo) / (hi - lo) * 100))
+            bar = (
+                f'<div style="position:relative;height:7px;background:{BG_DARK};'
+                f'border:1px solid {BORDER};border-radius:4px">'
+                f'<div style="position:absolute;inset:0 auto 0 0;width:{pos:.1f}%;background:{col};'
+                f'opacity:.55;border-radius:3px"></div>'
+                f'<div style="position:absolute;top:-3px;bottom:-3px;left:{pos:.1f}%;width:2px;'
+                f'background:#FAFAFA"></div></div>'
+                f'<div style="display:flex;justify-content:space-between;font-size:.58rem;'
+                f'color:{_LENS_MUTED};margin-top:3px">'
+                f'<span>{lo:,.{dp}f}</span><span style="color:{col}">{pct:.0f}th pct</span>'
+                f'<span>{hi:,.{dp}f}</span></div>'
+            )
+        else:
+            bar = f'<div style="font-size:.6rem;color:{_LENS_MUTED}">range unavailable</div>'
+
+        rows.append(f"""
+        <div style="background:{BG_CARD};border:1px solid {BORDER};border-radius:4px;padding:10px 12px;
+                    display:grid;grid-template-columns:minmax(150px,1.5fr) 92px 78px minmax(120px,2fr) 92px;
+                    gap:12px;align-items:center">
+          <div>
+            <div style="font-size:.78rem;font-weight:600">{d['name']}</div>
+            <div style="font-size:.62rem;color:{_LENS_MUTED};margin-top:2px">{d['role']}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:1.1rem;font-weight:650;line-height:1.1">{d['value']}</div>
+            <div style="font-size:.58rem;color:{_LENS_MUTED}">{d['asof']}</div>
+          </div>
+          <div style="font-size:.64rem;line-height:1.55">
+            <div><span style="color:{_LENS_MUTED}">3m </span><span style="color:{col}">{_sgn(d.get('chg3m'))}</span></div>
+            <div><span style="color:{_LENS_MUTED}">12m </span><span style="color:{col}">{_sgn(d.get('chg12m'))}</span></div>
+          </div>
+          <div>{bar}{_lens_sparkline(d.get('spark') or [], col)}</div>
+          <div style="text-align:right">
+            <span style="display:inline-block;font-size:.6rem;font-weight:650;padding:3px 8px;
+                         border-radius:3px;color:{col};background:{col}22">{d['chip']}</span>
+            <div style="font-size:.56rem;color:{_LENS_MUTED};margin-top:4px">{d['band']}</div>
+          </div>
+        </div>""")
+
+    return f'<div style="display:flex;flex-direction:column;gap:8px">{"".join(rows)}</div>'
