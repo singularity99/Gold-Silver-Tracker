@@ -51,9 +51,10 @@ FRED_SERIES = {
     "factory_orders": "AMTMNO",
 }
 
-# Bump on any change to how a phase is computed. Callers pass this into their
-# cache key, because Streamlit hashes only the cached function's own body and
-# will otherwise keep serving a phase computed by a previous deployment.
+# A human-readable provenance label for the methodology. It is NOT the cache
+# key -- bumping it invalidates nothing, and relying on it to is what let two
+# deploys serve stale phases. Cache invalidation is handled by
+# cache_keys.source_version(), which hashes this file.
 FRAMEWORK_VERSION = "2026.08.07-composite-2"
 
 # OURS: composite construction parameters. The paper withholds its own

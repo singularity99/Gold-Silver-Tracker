@@ -27,8 +27,10 @@ import yfinance as yf
 
 from macro import _fetch_fred_series, _slice_asof, _to_monthly
 
-# Bump when the lens changes how a reading is computed, so a deploy
-# invalidates the cached state (see FRAMEWORK_VERSION in macro.py).
+# A human-readable provenance label, surfaced in the returned state so a
+# reading can be traced to the methodology that produced it. It is NOT the
+# cache key -- bumping it invalidates nothing. Cache invalidation is handled
+# by cache_keys.source_version(), which hashes this file.
 LENS_VERSION = "2026.10.10-goldlens-3"
 
 MOMENTUM_MONTHS = 3     # window for the quadrant's change measure

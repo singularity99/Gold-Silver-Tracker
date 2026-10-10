@@ -23,8 +23,9 @@ from portfolio import (
 from news import fetch_catalyst_news
 from analysis import generate_summary, build_context_prompt
 import chat
-from macro import get_macro_framework_state, apply_macro_overlay, FRAMEWORK_VERSION
-from gold_lens import get_gold_lens_state, LENS_VERSION
+from macro import get_macro_framework_state, apply_macro_overlay
+from gold_lens import get_gold_lens_state
+from cache_keys import source_version
 from style import (
     GLOBAL_CSS, GOLD, SILVER, GREEN, RED, AMBER, TEXT_MUTED, BG_CARD,
     ticker_strip_html, signal_card_html, etc_tile_html,
@@ -348,23 +349,24 @@ else:
     st.sidebar.caption("Add GITHUB_TOKEN + GITHUB_REPO secrets")
 
 
-# The composites are built from monthly series, so there is nothing to gain
-# from refetching often. Six hours still picks up a FRED release the same day
-# without pulling 17 CSVs every five minutes.
+# Both read monthly or daily series, so there is nothing to gain from
+# refetching often. Six hours still picks up a release the same day without
+# pulling the whole bundle every five minutes.
 #
-# `version` is unused inside the function but is part of the cache key, so a
-# deploy that changes how phases are computed invalidates the entry. Without
-# it Streamlit hashes only this function's body -- which never changes -- and
-# serves the previous deployment's phase for the whole TTL.
+# `version` is unused inside the body but forms part of the cache key, and it
+# is REQUIRED rather than defaulted on purpose: a default binds at definition
+# time, so the key would be fixed wherever the name happened to resolve. The
+# caller passes source_version(...), which hashes the module on disk, so any
+# change to how a reading is computed drops the entry with nothing to bump by
+# hand. Two deploys of this app shipped correct code and served stale numbers
+# because a hand-maintained constant was the key.
 @st.cache_data(show_spinner=False, ttl=21600)
-def _macro_state_cached(version: str = FRAMEWORK_VERSION):
+def _macro_state_cached(version: str):
     return get_macro_framework_state()
 
 
-# Same reasoning as above: daily series, so six hours, and `version` keyed to
-# the lens so a change to how a reading is computed invalidates the entry.
 @st.cache_data(show_spinner=False, ttl=21600)
-def _gold_lens_cached(version: str = LENS_VERSION):
+def _gold_lens_cached(version: str):
     return get_gold_lens_state()
 
 
@@ -427,7 +429,7 @@ tab_dashboard, tab_charts, tab_portfolio, tab_news, tab_simulator = st.tabs([
 with tab_dashboard:
     # Compute signals for both metals
     with st.spinner("Analysing markets..."):
-        macro_state = _macro_state_cached()
+        macro_state = _macro_state_cached(source_version("macro.py"))
         gold_tf = fetch_multi_timeframe_data("GC=F")
         silver_tf = fetch_multi_timeframe_data("SI=F")
         gold_fib = multi_timeframe_fibonacci(gold_tf)
@@ -539,7 +541,7 @@ with tab_dashboard:
         st.dataframe(metrics_df, use_container_width=True, hide_index=True)
 
     with st.expander("Gold Macro Lens (real yields, breakevens, dollar, Fed balance sheet)", expanded=False):
-        lens = _gold_lens_cached()
+        lens = _gold_lens_cached(source_version("gold_lens.py"))
         q = lens.get("quadrant", {})
         stance_colour = {"supportive": GREEN, "hostile": RED}.get(q.get("stance"), AMBER)
 
