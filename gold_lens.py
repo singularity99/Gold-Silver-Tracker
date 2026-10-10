@@ -29,7 +29,7 @@ from macro import _fetch_fred_series, _slice_asof, _to_monthly
 
 # Bump when the lens changes how a reading is computed, so a deploy
 # invalidates the cached state (see FRAMEWORK_VERSION in macro.py).
-LENS_VERSION = "2026.10.08-goldlens-2"
+LENS_VERSION = "2026.10.10-goldlens-3"
 
 MOMENTUM_MONTHS = 3     # window for the quadrant's change measure
 TRAIL_MONTHS = 15       # how much history the quadrant trail shows
@@ -82,14 +82,22 @@ def fetch_gold_lens_bundle() -> dict[str, pd.Series]:
 
 # ── Driver rows ───────────────────────────────────────────────────────────────
 
-def _change(s: pd.Series, days: int) -> float:
+def _change(s: pd.Series, months: int) -> float:
+    """Change over N months, measured month-end to month-end.
+
+    Every change in this module goes through here. An earlier version
+    measured the driver rows on a daily lookback while the quadrant used
+    month-end sampling, so the same "3m change" appeared twice with
+    different values — the breakeven read +0.11pp in the header and +0.09pp
+    in its own row, which straddled the neutral band and put a Neutral chip
+    under a header implying a tailwind.
+    """
     if s is None or s.empty:
         return np.nan
-    cut = s.index[-1] - pd.Timedelta(days=days)
-    prior = s[s.index <= cut]
-    if prior.empty:
+    m = _to_monthly(s)
+    if len(m) <= months:
         return np.nan
-    return float(s.iloc[-1]) - float(prior.iloc[-1])
+    return float(m.iloc[-1]) - float(m.iloc[-(months + 1)])
 
 
 def _percentile_5y(s: pd.Series) -> tuple[float, float, float]:
@@ -129,8 +137,8 @@ def _driver_row(key, series, name, role, dp, unit, higher_helps_gold, band_note=
                 "band": "", "spark": [], "asof": ""}
 
     raw = float(s.iloc[-1])
-    chg3m = _change(s, 91)
-    chg12m = _change(s, 365)
+    chg3m = _change(s, MOMENTUM_MONTHS)
+    chg12m = _change(s, 12)
     pct, lo, hi = _percentile_5y(s)
 
     # Direction, not level, decides the chip. The level correlation between
@@ -261,7 +269,7 @@ def get_gold_lens_state(bundle: dict[str, pd.Series] | None = None,
     dxy = _slice_asof(b.get("dollar", pd.Series(dtype=float)))
 
     # QT / QE stance from the 6-month direction of the balance sheet.
-    chg6m = _change(wal, 182)
+    chg6m = _change(wal, 6)
     if np.isnan(chg6m):
         stance_note = ""
     elif chg6m > 0.05:
